@@ -1,0 +1,149 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>지금그곳 - 거기비와</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body { font-family: -apple-system, "Apple SD Gothic Neo", sans-serif; }
+  #map { width: 100%; height: 100vh; }
+
+  #searchBox {
+    position: absolute; top: 16px; left: 50%; transform: translateX(-50%);
+    z-index: 10; display: flex; gap: 8px; width: 90%; max-width: 420px;
+  }
+  #searchInput {
+    flex: 1; padding: 12px 16px; border-radius: 24px; border: none;
+    box-shadow: 0 2px 10px rgba(0,0,0,0.2); font-size: 15px; outline: none;
+  }
+  #searchBtn {
+    padding: 12px 18px; border-radius: 24px; border: none; background: #3b82f6;
+    color: white; font-weight: bold; cursor: pointer; box-shadow: 0 2px 10px rgba(0,0,0,0.2);
+  }
+
+  #modal {
+    display: none; position: fixed; inset: 0; background: rgba(0,0,0,0.7);
+    z-index: 100; align-items: center; justify-content: center;
+  }
+  #modal.show { display: flex; }
+  #modalContent {
+    background: white; border-radius: 12px; padding: 16px; max-width: 640px; width: 92%;
+  }
+  #modalContent h3 { margin-bottom: 10px; font-size: 16px; }
+  #closeBtn {
+    float: right; border: none; background: none; font-size: 20px; cursor: pointer;
+  }
+  #statusMsg {
+    position: absolute; bottom: 16px; left: 50%; transform: translateX(-50%);
+    background: white; padding: 8px 16px; border-radius: 20px; font-size: 13px;
+    box-shadow: 0 2px 8px rgba(0,0,0,0.15); z-index: 10; display: none;
+  }
+</style>
+</head>
+<body>
+
+<div id="searchBox">
+  <input id="searchInput" type="text" placeholder="장소명이나 캠핑장 이름을 검색해보세요">
+  <button id="searchBtn">검색</button>
+</div>
+
+<div id="map"></div>
+<div id="statusMsg"></div>
+
+<div id="modal">
+  <div id="modalContent">
+    <button id="closeBtn">✕</button>
+    <h3 id="modalTitle"></h3>
+    <div id="modalBody"></div>
+  </div>
+</div>
+
+<!-- ⚠️ 아래 appkey는 발급받으신 JavaScript 키입니다 -->
+<script src="//dapi.kakao.com/v2/maps/sdk.js?appkey=fe07520c037bcd001a849137e09baca6&libraries=services"></script>
+<script>
+  // 1. 지도 초기화 (기본 중심: 서울)
+  var mapContainer = document.getElementById('map');
+  var mapOption = {
+    center: new kakao.maps.LatLng(37.5665, 126.9780),
+    level: 7
+  };
+  var map = new kakao.maps.Map(mapContainer, mapOption);
+  var ps = new kakao.maps.services.Places();
+
+  var markers = [];
+
+  function clearMarkers() {
+    markers.forEach(function(m){ m.setMap(null); });
+    markers = [];
+  }
+
+  function showStatus(msg) {
+    var el = document.getElementById('statusMsg');
+    el.textContent = msg;
+    el.style.display = 'block';
+    setTimeout(function(){ el.style.display = 'none'; }, 3000);
+  }
+
+  // 2. 테스트용 고정 핀 하나 (서울시청 근처) - 마커/모달 동작 확인용
+  function addTestPin() {
+    var pos = new kakao.maps.LatLng(37.5665, 126.9780);
+    var marker = new kakao.maps.Marker({ position: pos, map: map });
+    kakao.maps.event.addListener(marker, 'click', function() {
+      openModal('테스트 핀 (서울시청)', 
+        '<iframe width="100%" height="315" src="https://www.youtube.com/embed/jNQXAC9IVRw" frameborder="0" allowfullscreen></iframe>');
+    });
+    markers.push(marker);
+  }
+  addTestPin();
+
+  // 3. 검색 기능
+  function searchPlace() {
+    var keyword = document.getElementById('searchInput').value.trim();
+    if (!keyword) return;
+
+    ps.keywordSearch(keyword, function(data, status) {
+      if (status === kakao.maps.services.Status.OK) {
+        clearMarkers();
+        var bounds = new kakao.maps.LatLngBounds();
+
+        data.slice(0, 5).forEach(function(place) {
+          var pos = new kakao.maps.LatLng(place.y, place.x);
+          var marker = new kakao.maps.Marker({ position: pos, map: map });
+          kakao.maps.event.addListener(marker, 'click', function() {
+            openModal(place.place_name, 
+              '<p>주소: ' + place.address_name + '</p><p style="color:#888;font-size:13px;margin-top:8px;">※ 아직 이 장소에 연결된 CCTV/라이브 영상이 없습니다. (Phase 2 다음 단계에서 연결 예정)</p>');
+          });
+          markers.push(marker);
+          bounds.extend(pos);
+        });
+
+        map.setBounds(bounds);
+        showStatus(keyword + ' 검색결과 ' + data.length + '건 중 상위 ' + Math.min(5, data.length) + '개 표시');
+      } else if (status === kakao.maps.services.Status.ZERO_RESULT) {
+        showStatus('검색 결과가 없습니다.');
+      } else {
+        showStatus('검색 중 오류가 발생했습니다.');
+      }
+    });
+  }
+
+  document.getElementById('searchBtn').addEventListener('click', searchPlace);
+  document.getElementById('searchInput').addEventListener('keypress', function(e) {
+    if (e.key === 'Enter') searchPlace();
+  });
+
+  // 4. 모달
+  function openModal(title, bodyHtml) {
+    document.getElementById('modalTitle').textContent = title;
+    document.getElementById('modalBody').innerHTML = bodyHtml;
+    document.getElementById('modal').classList.add('show');
+  }
+  document.getElementById('closeBtn').addEventListener('click', function() {
+    document.getElementById('modal').classList.remove('show');
+    document.getElementById('modalBody').innerHTML = '';
+  });
+</script>
+
+</body>
+</html>
