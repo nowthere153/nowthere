@@ -3,14 +3,14 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>지금그곳 - 거기비와</title>
+<title>거기비와 - 혼자 보기 아까운, 지금 그곳</title>
 <style>
   * { margin: 0; padding: 0; box-sizing: border-box; }
   body { font-family: -apple-system, "Apple SD Gothic Neo", sans-serif; }
   #map { width: 100%; height: 100vh; }
 
   #searchBox {
-    position: absolute; top: 16px; left: 50%; transform: translateX(-50%);
+    position: absolute; top: 76px; left: 50%; transform: translateX(-50%);
     z-index: 10; display: flex; gap: 8px; width: 90%; max-width: 420px;
   }
   #searchInput {
@@ -20,6 +20,31 @@
   #searchBtn {
     padding: 12px 18px; border-radius: 24px; border: none; background: #3b82f6;
     color: white; font-weight: bold; cursor: pointer; box-shadow: 0 2px 10px rgba(0,0,0,0.2);
+  }
+
+  #header {
+    position: absolute; top: 0; left: 0; width: 100%; z-index: 11;
+    background: linear-gradient(180deg, rgba(0,0,0,0.55), rgba(0,0,0,0));
+    padding: 14px 16px 30px; color: white; box-sizing: border-box;
+    pointer-events: none;
+  }
+  #header .brand { font-size: 20px; font-weight: 800; letter-spacing: -0.5px; }
+  #header .tagline { font-size: 12.5px; opacity: 0.9; margin-top: 2px; }
+
+  #registerBtn {
+    position: absolute; top: 16px; right: 16px; z-index: 12;
+    background: #111827; color: white; border: none; padding: 10px 14px;
+    border-radius: 20px; font-size: 13px; font-weight: 600; cursor: pointer;
+    box-shadow: 0 2px 10px rgba(0,0,0,0.25);
+  }
+
+  .formRow { margin-bottom: 12px; }
+  .formRow label { display: block; font-size: 13px; color: #444; margin-bottom: 4px; }
+  .formRow input { width: 100%; padding: 10px 12px; border: 1px solid #ddd; border-radius: 8px; font-size: 14px; }
+  #placeHint { font-size: 13px; color: #e11d48; margin-bottom: 10px; }
+  #confirmRegisterBtn {
+    padding: 10px 16px; border-radius: 8px; border: none; background: #e11d48;
+    color: white; font-weight: bold; cursor: pointer;
   }
 
   #modal {
@@ -42,6 +67,13 @@
 </style>
 </head>
 <body>
+
+<div id="header">
+  <div class="brand">🔴 거기비와</div>
+  <div class="tagline">혼자 보기 아까운, 지금 그곳의 모습</div>
+</div>
+
+<button id="registerBtn">📍 지금 여기 보여주기</button>
 
 <div id="searchBox">
   <input id="searchInput" type="text" placeholder="장소명이나 캠핑장 이름을 검색해보세요">
@@ -197,6 +229,61 @@
   document.getElementById('searchInput').addEventListener('keypress', function(e) {
     if (e.key === 'Enter') searchPlace();
   });
+
+  // 5. 라이브 등록 기능
+  var placingMode = false;
+  var pendingLatLng = null;
+
+  // 유튜브 URL에서 영상 ID 추출 (watch, youtu.be, live, embed 형식 모두 지원)
+  function extractYoutubeId(url) {
+    var m = url.match(/(?:youtube\.com\/(?:watch\?v=|live\/|embed\/)|youtu\.be\/)([a-zA-Z0-9_-]{11})/);
+    return m ? m[1] : null;
+  }
+
+  document.getElementById('registerBtn').addEventListener('click', function() {
+    placingMode = true;
+    showStatus('📍 지도를 클릭해서 보여주고 싶은 위치를 지정해주세요');
+  });
+
+  kakao.maps.event.addListener(map, 'click', function(mouseEvent) {
+    if (!placingMode) return;
+    pendingLatLng = mouseEvent.latLng;
+    placingMode = false;
+    openRegisterForm();
+  });
+
+  function openRegisterForm() {
+    var formHtml =
+      '<div class="formRow"><label>장소 이름</label><input id="regTitle" type="text" placeholder="예: 우리집 앞마당, OO캠핑장"></div>' +
+      '<div class="formRow"><label>유튜브 라이브(또는 영상) 링크</label><input id="regUrl" type="text" placeholder="https://youtube.com/watch?v=..."></div>' +
+      '<p id="placeHint"></p>' +
+      '<button id="confirmRegisterBtn">등록하기</button>' +
+      '<p style="font-size:12px;color:#999;margin-top:10px;">※ 지금은 데모 버전이라 등록한 핀은 내 화면에서만 보이고, 새로고침하면 사라집니다. (다음 단계에서 모두에게 공유되도록 개선 예정)</p>';
+    openModal('새 라이브 스팟 등록', formHtml);
+
+    document.getElementById('confirmRegisterBtn').addEventListener('click', function() {
+      var title = document.getElementById('regTitle').value.trim();
+      var url = document.getElementById('regUrl').value.trim();
+      var videoId = extractYoutubeId(url);
+
+      if (!title) { document.getElementById('placeHint').textContent = '장소 이름을 입력해주세요.'; return; }
+      if (!videoId) { document.getElementById('placeHint').textContent = '올바른 유튜브 링크가 아닙니다. 링크를 다시 확인해주세요.'; return; }
+
+      var newSpot = { name: title, lat: pendingLatLng.getLat(), lng: pendingLatLng.getLng(), videoId: videoId };
+      liveSpots.push(newSpot);
+
+      var marker = new kakao.maps.Marker({ position: pendingLatLng, map: map, image: redMarkerImage() });
+      kakao.maps.event.addListener(marker, 'click', function() {
+        openModal(newSpot.name,
+          '<iframe width="100%" height="315" src="https://www.youtube.com/embed/' + newSpot.videoId + '" frameborder="0" allowfullscreen></iframe>');
+      });
+      markers.push(marker);
+
+      document.getElementById('modal').classList.remove('show');
+      document.getElementById('modalBody').innerHTML = '';
+      showStatus('✅ "' + title + '" 등록 완료! 지도에서 확인해보세요');
+    });
+  }
 
   // 4. 모달
   function openModal(title, bodyHtml) {
