@@ -93,6 +93,7 @@
 
 <!-- ⚠️ 아래 appkey는 발급받으신 JavaScript 키입니다 -->
 <script src="//dapi.kakao.com/v2/maps/sdk.js?appkey=fe07520c037bcd001a849137e09baca6&libraries=services"></script>
+<script async src="//www.instagram.com/embed.js"></script>
 <script>
   // 1. 지도 초기화 (기본 중심: 서울)
   var mapContainer = document.getElementById('map');
@@ -117,14 +118,14 @@
     setTimeout(function(){ el.style.display = 'none'; }, 3000);
   }
 
-  // 2. 샘플 라이브 스팟 데이터 (임시 - 나중에 실제 CCTV/유튜브 등록 데이터로 교체 예정)
+  // 2. 샘플 라이브 스팟 데이터 (임시 - 나중에 실제 등록 데이터로 교체 예정)
   //    videoId는 전부 확실히 임베드되는 테스트 영상으로 통일 (지금 목적은 "매칭 로직"이 되는지 확인)
   var liveSpots = [
-    { name: '서울시청 인근 (샘플)', lat: 37.5665, lng: 126.9780, videoId: 'jNQXAC9IVRw' },
-    { name: '해운대해수욕장 인근 (샘플)', lat: 35.1587, lng: 129.1604, videoId: 'jNQXAC9IVRw' },
-    { name: '설악산 입구 인근 (샘플)', lat: 38.1194, lng: 128.4657, videoId: 'jNQXAC9IVRw' },
-    { name: '남이섬 인근 (샘플)', lat: 37.7906, lng: 127.5262, videoId: 'jNQXAC9IVRw' },
-    { name: '경포호 인근 (샘플)', lat: 37.7955, lng: 128.9075, videoId: 'jNQXAC9IVRw' }
+    { name: '서울시청 인근 (샘플)', lat: 37.5665, lng: 126.9780, type: 'youtube', videoId: 'jNQXAC9IVRw' },
+    { name: '해운대해수욕장 인근 (샘플)', lat: 35.1587, lng: 129.1604, type: 'youtube', videoId: 'jNQXAC9IVRw' },
+    { name: '설악산 입구 인근 (샘플)', lat: 38.1194, lng: 128.4657, type: 'youtube', videoId: 'jNQXAC9IVRw' },
+    { name: '남이섬 인근 (샘플)', lat: 37.7906, lng: 127.5262, type: 'youtube', videoId: 'jNQXAC9IVRw' },
+    { name: '경포호 인근 (샘플)', lat: 37.7955, lng: 128.9075, type: 'youtube', videoId: 'jNQXAC9IVRw' }
   ];
 
   var DISTANCE_THRESHOLD_KM = 15; // 이 거리(km) 넘으면 "참고용" 경고 표시
@@ -151,25 +152,45 @@
     return { spot: nearest, distance: minDist };
   }
 
-  // 빨간 핀 SVG 아이콘 생성
-  function redMarkerImage() {
+  // 핀 SVG 아이콘 생성 (color 파라미터로 빨강/파랑 구분)
+  function pinImage(color) {
     var svg = '<svg xmlns="http://www.w3.org/2000/svg" width="28" height="36" viewBox="0 0 28 36">' +
-      '<path d="M14 0C6.3 0 0 6.3 0 14c0 10.5 14 22 14 22s14-11.5 14-22C28 6.3 21.7 0 14 0z" fill="#e11d48"/>' +
+      '<path d="M14 0C6.3 0 0 6.3 0 14c0 10.5 14 22 14 22s14-11.5 14-22C28 6.3 21.7 0 14 0z" fill="' + color + '"/>' +
       '<circle cx="14" cy="14" r="6" fill="white"/></svg>';
     return new kakao.maps.MarkerImage(
       'data:image/svg+xml;base64,' + btoa(svg),
       new kakao.maps.Size(28, 36)
     );
   }
+  function redMarkerImage() { return pinImage('#e11d48'); }   // 유튜브 라이브 = 지금 이 순간
+  function blueMarkerImage() { return pinImage('#2563eb'); }  // 인스타그램 릴스/게시물 = 그때 그 순간의 기록
 
-  // 샘플 스팟들을 지도에 빨간 핀으로 항상 표시
+  // 콘텐츠 타입에 맞는 임베드 HTML 생성 (유튜브 iframe / 인스타그램 공식 블록쿼트)
+  function buildEmbedHtml(spot) {
+    if (spot.type === 'instagram') {
+      return '<blockquote class="instagram-media" data-instgrm-permalink="' + spot.permalink +
+        '" data-instgrm-version="14" style="margin:0;width:100%;min-width:280px;"></blockquote>';
+    }
+    return '<iframe width="100%" height="315" src="https://www.youtube.com/embed/' + spot.videoId +
+      '" frameborder="0" allowfullscreen></iframe>';
+  }
+
+  // 스팟 클릭시 모달 열기 (타입에 따라 인스타그램이면 임베드 스크립트 재실행)
+  function openSpotModal(spot) {
+    openModal(spot.name, buildEmbedHtml(spot));
+    if (spot.type === 'instagram' && window.instgrm) {
+      window.instgrm.Embeds.process();
+    }
+  }
+
+  // 샘플 스팟들을 지도에 핀으로 항상 표시 (타입별 색상 구분)
   function addLiveSpotPins() {
     liveSpots.forEach(function(spot) {
       var pos = new kakao.maps.LatLng(spot.lat, spot.lng);
-      var marker = new kakao.maps.Marker({ position: pos, map: map, image: redMarkerImage() });
+      var img = spot.type === 'instagram' ? blueMarkerImage() : redMarkerImage();
+      var marker = new kakao.maps.Marker({ position: pos, map: map, image: img });
       kakao.maps.event.addListener(marker, 'click', function() {
-        openModal(spot.name,
-          '<iframe width="100%" height="315" src="https://www.youtube.com/embed/' + spot.videoId + '" frameborder="0" allowfullscreen></iframe>');
+        openSpotModal(spot);
       });
       markers.push(marker);
     });
@@ -199,12 +220,16 @@
             var d = getDistanceKm(place.y, place.x, result.spot.lat, result.spot.lng);
             var body = '<p>주소: ' + place.address_name + '</p>';
             if (d <= DISTANCE_THRESHOLD_KM) {
-              body += '<p style="margin-top:8px;">가장 가까운 라이브 스팟: <b>' + result.spot.name + '</b> (' + d.toFixed(1) + 'km)</p>' +
-                      '<button onclick="openModal(\'' + result.spot.name + '\', \'<iframe width=100% height=315 src=https://www.youtube.com/embed/' + result.spot.videoId + ' frameborder=0 allowfullscreen></iframe>\')" style="margin-top:8px;padding:8px 14px;border-radius:8px;border:none;background:#e11d48;color:white;cursor:pointer;">이 라이브 보기</button>';
+              body += '<p style="margin-top:8px;">가장 가까운 스팟: <b>' + result.spot.name + '</b> (' + d.toFixed(1) + 'km)</p>' +
+                      '<button id="viewNearestBtn" style="margin-top:8px;padding:8px 14px;border-radius:8px;border:none;background:#e11d48;color:white;cursor:pointer;">이 스팟 보기</button>';
             } else {
-              body += '<p style="color:#c2410c;font-size:13px;margin-top:8px;">⚠️ 반경 ' + DISTANCE_THRESHOLD_KM + 'km 내에 등록된 라이브 스팟이 없습니다. (가장 가까운 곳: ' + result.spot.name + ', ' + d.toFixed(1) + 'km — 참고용으로만 보세요)</p>';
+              body += '<p style="color:#c2410c;font-size:13px;margin-top:8px;">⚠️ 반경 ' + DISTANCE_THRESHOLD_KM + 'km 내에 등록된 스팟이 없습니다. (가장 가까운 곳: ' + result.spot.name + ', ' + d.toFixed(1) + 'km — 참고용으로만 보세요)</p>';
             }
             openModal(place.place_name, body);
+            var viewBtn = document.getElementById('viewNearestBtn');
+            if (viewBtn) {
+              viewBtn.addEventListener('click', function() { openSpotModal(result.spot); });
+            }
           });
           markers.push(marker);
           bounds.extend(pos);
@@ -230,14 +255,19 @@
     if (e.key === 'Enter') searchPlace();
   });
 
-  // 5. 라이브 등록 기능
+  // 5. 라이브/기록 등록 기능
   var placingMode = false;
   var pendingLatLng = null;
 
-  // 유튜브 URL에서 영상 ID 추출 (watch, youtu.be, live, embed 형식 모두 지원)
-  function extractYoutubeId(url) {
-    var m = url.match(/(?:youtube\.com\/(?:watch\?v=|live\/|embed\/)|youtu\.be\/)([a-zA-Z0-9_-]{11})/);
-    return m ? m[1] : null;
+  // URL을 보고 유튜브인지 인스타그램인지 자동 감지
+  function extractContentInfo(url) {
+    var yt = url.match(/(?:youtube\.com\/(?:watch\?v=|live\/|embed\/)|youtu\.be\/)([a-zA-Z0-9_-]{11})/);
+    if (yt) return { type: 'youtube', videoId: yt[1] };
+
+    var ig = url.match(/instagram\.com\/(?:reel|p|tv)\/([a-zA-Z0-9_-]+)/);
+    if (ig) return { type: 'instagram', permalink: url.split('?')[0] };
+
+    return null;
   }
 
   document.getElementById('registerBtn').addEventListener('click', function() {
@@ -255,28 +285,29 @@
   function openRegisterForm() {
     var formHtml =
       '<div class="formRow"><label>장소 이름</label><input id="regTitle" type="text" placeholder="예: 우리집 앞마당, OO캠핑장"></div>' +
-      '<div class="formRow"><label>유튜브 라이브(또는 영상) 링크</label><input id="regUrl" type="text" placeholder="https://youtube.com/watch?v=..."></div>' +
+      '<div class="formRow"><label>링크 (유튜브 라이브 또는 인스타그램 릴스/게시물)</label><input id="regUrl" type="text" placeholder="https://youtube.com/watch?v=... 또는 https://instagram.com/reel/..."></div>' +
       '<p id="placeHint"></p>' +
       '<button id="confirmRegisterBtn">등록하기</button>' +
-      '<p style="font-size:12px;color:#999;margin-top:10px;">※ 지금은 데모 버전이라 등록한 핀은 내 화면에서만 보이고, 새로고침하면 사라집니다. (다음 단계에서 모두에게 공유되도록 개선 예정)</p>';
-    openModal('새 라이브 스팟 등록', formHtml);
+      '<p style="font-size:12px;color:#999;margin-top:10px;">🔴 유튜브 라이브 = 빨간 핀(지금 이 순간) · 🔵 인스타그램 = 파란 핀(그때 그 순간의 기록)<br>※ 지금은 데모 버전이라 등록한 핀은 내 화면에서만 보이고, 새로고침하면 사라집니다.</p>';
+    openModal('새 스팟 등록', formHtml);
 
     document.getElementById('confirmRegisterBtn').addEventListener('click', function() {
       var title = document.getElementById('regTitle').value.trim();
       var url = document.getElementById('regUrl').value.trim();
-      var videoId = extractYoutubeId(url);
+      var info = extractContentInfo(url);
 
       if (!title) { document.getElementById('placeHint').textContent = '장소 이름을 입력해주세요.'; return; }
-      if (!videoId) { document.getElementById('placeHint').textContent = '올바른 유튜브 링크가 아닙니다. 링크를 다시 확인해주세요.'; return; }
+      if (!info) { document.getElementById('placeHint').textContent = '유튜브(watch/live) 또는 인스타그램(reel/p) 링크만 지원합니다. 링크를 다시 확인해주세요.'; return; }
 
-      var newSpot = { name: title, lat: pendingLatLng.getLat(), lng: pendingLatLng.getLng(), videoId: videoId };
+      var newSpot = { name: title, lat: pendingLatLng.getLat(), lng: pendingLatLng.getLng(), type: info.type };
+      if (info.type === 'youtube') newSpot.videoId = info.videoId;
+      else newSpot.permalink = info.permalink;
+
       liveSpots.push(newSpot);
 
-      var marker = new kakao.maps.Marker({ position: pendingLatLng, map: map, image: redMarkerImage() });
-      kakao.maps.event.addListener(marker, 'click', function() {
-        openModal(newSpot.name,
-          '<iframe width="100%" height="315" src="https://www.youtube.com/embed/' + newSpot.videoId + '" frameborder="0" allowfullscreen></iframe>');
-      });
+      var img = info.type === 'instagram' ? blueMarkerImage() : redMarkerImage();
+      var marker = new kakao.maps.Marker({ position: pendingLatLng, map: map, image: img });
+      kakao.maps.event.addListener(marker, 'click', function() { openSpotModal(newSpot); });
       markers.push(marker);
 
       document.getElementById('modal').classList.remove('show');
