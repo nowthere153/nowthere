@@ -85,17 +85,64 @@
     setTimeout(function(){ el.style.display = 'none'; }, 3000);
   }
 
-  // 2. 테스트용 고정 핀 하나 (서울시청 근처) - 마커/모달 동작 확인용
-  function addTestPin() {
-    var pos = new kakao.maps.LatLng(37.5665, 126.9780);
-    var marker = new kakao.maps.Marker({ position: pos, map: map });
-    kakao.maps.event.addListener(marker, 'click', function() {
-      openModal('테스트 핀 (서울시청)', 
-        '<iframe width="100%" height="315" src="https://www.youtube.com/embed/jNQXAC9IVRw" frameborder="0" allowfullscreen></iframe>');
-    });
-    markers.push(marker);
+  // 2. 샘플 라이브 스팟 데이터 (임시 - 나중에 실제 CCTV/유튜브 등록 데이터로 교체 예정)
+  //    videoId는 전부 확실히 임베드되는 테스트 영상으로 통일 (지금 목적은 "매칭 로직"이 되는지 확인)
+  var liveSpots = [
+    { name: '서울시청 인근 (샘플)', lat: 37.5665, lng: 126.9780, videoId: 'jNQXAC9IVRw' },
+    { name: '해운대해수욕장 인근 (샘플)', lat: 35.1587, lng: 129.1604, videoId: 'jNQXAC9IVRw' },
+    { name: '설악산 입구 인근 (샘플)', lat: 38.1194, lng: 128.4657, videoId: 'jNQXAC9IVRw' },
+    { name: '남이섬 인근 (샘플)', lat: 37.7906, lng: 127.5262, videoId: 'jNQXAC9IVRw' },
+    { name: '경포호 인근 (샘플)', lat: 37.7955, lng: 128.9075, videoId: 'jNQXAC9IVRw' }
+  ];
+
+  var DISTANCE_THRESHOLD_KM = 15; // 이 거리(km) 넘으면 "참고용" 경고 표시
+
+  // 하버사인 공식으로 두 좌표간 거리(km) 계산
+  function getDistanceKm(lat1, lng1, lat2, lng2) {
+    var R = 6371;
+    var dLat = (lat2 - lat1) * Math.PI / 180;
+    var dLng = (lng2 - lng1) * Math.PI / 180;
+    var a = Math.sin(dLat/2) * Math.sin(dLat/2) +
+            Math.cos(lat1 * Math.PI/180) * Math.cos(lat2 * Math.PI/180) *
+            Math.sin(dLng/2) * Math.sin(dLng/2);
+    var c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
+    return R * c;
   }
-  addTestPin();
+
+  // 주어진 좌표에서 가장 가까운 라이브 스팟 찾기
+  function findNearestSpot(lat, lng) {
+    var nearest = null, minDist = Infinity;
+    liveSpots.forEach(function(spot) {
+      var d = getDistanceKm(lat, lng, spot.lat, spot.lng);
+      if (d < minDist) { minDist = d; nearest = spot; }
+    });
+    return { spot: nearest, distance: minDist };
+  }
+
+  // 빨간 핀 SVG 아이콘 생성
+  function redMarkerImage() {
+    var svg = '<svg xmlns="http://www.w3.org/2000/svg" width="28" height="36" viewBox="0 0 28 36">' +
+      '<path d="M14 0C6.3 0 0 6.3 0 14c0 10.5 14 22 14 22s14-11.5 14-22C28 6.3 21.7 0 14 0z" fill="#e11d48"/>' +
+      '<circle cx="14" cy="14" r="6" fill="white"/></svg>';
+    return new kakao.maps.MarkerImage(
+      'data:image/svg+xml;base64,' + btoa(svg),
+      new kakao.maps.Size(28, 36)
+    );
+  }
+
+  // 샘플 스팟들을 지도에 빨간 핀으로 항상 표시
+  function addLiveSpotPins() {
+    liveSpots.forEach(function(spot) {
+      var pos = new kakao.maps.LatLng(spot.lat, spot.lng);
+      var marker = new kakao.maps.Marker({ position: pos, map: map, image: redMarkerImage() });
+      kakao.maps.event.addListener(marker, 'click', function() {
+        openModal(spot.name,
+          '<iframe width="100%" height="315" src="https://www.youtube.com/embed/' + spot.videoId + '" frameborder="0" allowfullscreen></iframe>');
+      });
+      markers.push(marker);
+    });
+  }
+  addLiveSpotPins();
 
   // 3. 검색 기능
   function searchPlace() {
@@ -107,19 +154,37 @@
         clearMarkers();
         var bounds = new kakao.maps.LatLngBounds();
 
-        data.slice(0, 5).forEach(function(place) {
+        // 검색된 장소들 중 첫 번째(가장 관련성 높은 결과) 기준으로 최근접 라이브 스팟을 매칭
+        var topPlace = data[0];
+        var lat = parseFloat(topPlace.y), lng = parseFloat(topPlace.x);
+        var result = findNearestSpot(lat, lng);
+
+        data.slice(0, 5).forEach(function(place, idx) {
           var pos = new kakao.maps.LatLng(place.y, place.x);
+          // 회색 마커: 검색 결과 자체 위치 (참고용)
           var marker = new kakao.maps.Marker({ position: pos, map: map });
           kakao.maps.event.addListener(marker, 'click', function() {
-            openModal(place.place_name, 
-              '<p>주소: ' + place.address_name + '</p><p style="color:#888;font-size:13px;margin-top:8px;">※ 아직 이 장소에 연결된 CCTV/라이브 영상이 없습니다. (Phase 2 다음 단계에서 연결 예정)</p>');
+            var d = getDistanceKm(place.y, place.x, result.spot.lat, result.spot.lng);
+            var body = '<p>주소: ' + place.address_name + '</p>';
+            if (d <= DISTANCE_THRESHOLD_KM) {
+              body += '<p style="margin-top:8px;">가장 가까운 라이브 스팟: <b>' + result.spot.name + '</b> (' + d.toFixed(1) + 'km)</p>' +
+                      '<button onclick="openModal(\'' + result.spot.name + '\', \'<iframe width=100% height=315 src=https://www.youtube.com/embed/' + result.spot.videoId + ' frameborder=0 allowfullscreen></iframe>\')" style="margin-top:8px;padding:8px 14px;border-radius:8px;border:none;background:#e11d48;color:white;cursor:pointer;">이 라이브 보기</button>';
+            } else {
+              body += '<p style="color:#c2410c;font-size:13px;margin-top:8px;">⚠️ 반경 ' + DISTANCE_THRESHOLD_KM + 'km 내에 등록된 라이브 스팟이 없습니다. (가장 가까운 곳: ' + result.spot.name + ', ' + d.toFixed(1) + 'km — 참고용으로만 보세요)</p>';
+            }
+            openModal(place.place_name, body);
           });
           markers.push(marker);
           bounds.extend(pos);
         });
 
         map.setBounds(bounds);
-        showStatus(keyword + ' 검색결과 ' + data.length + '건 중 상위 ' + Math.min(5, data.length) + '개 표시');
+        var topDist = getDistanceKm(lat, lng, result.spot.lat, result.spot.lng);
+        if (topDist <= DISTANCE_THRESHOLD_KM) {
+          showStatus('"' + keyword + '" 근처 ' + topDist.toFixed(1) + 'km 지점에 라이브 스팟이 있습니다!');
+        } else {
+          showStatus('"' + keyword + '" 근처엔 등록된 라이브 스팟이 없습니다 (가장 가까운 곳 ' + topDist.toFixed(1) + 'km)');
+        }
       } else if (status === kakao.maps.services.Status.ZERO_RESULT) {
         showStatus('검색 결과가 없습니다.');
       } else {
