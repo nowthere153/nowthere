@@ -28,7 +28,7 @@
     padding: 14px 16px 30px; color: white; box-sizing: border-box;
     pointer-events: none;
   }
-  #header .brand { font-size: 20px; font-weight: 800; letter-spacing: -0.5px; }
+  #header .brand { font-size: 20px; font-weight: 800; letter-spacing: -0.5px; pointer-events: auto; display: inline-block; cursor: default; }
   #header .tagline { font-size: 12.5px; opacity: 0.9; margin-top: 2px; }
 
   #registerBtn {
@@ -94,6 +94,23 @@
 <!-- ⚠️ 아래 appkey는 발급받으신 JavaScript 키입니다 -->
 <script src="//dapi.kakao.com/v2/maps/sdk.js?appkey=fe07520c037bcd001a849137e09baca6&libraries=services"></script>
 <script async src="//www.instagram.com/embed.js"></script>
+
+<!-- Firebase (Firestore) - 등록 데이터를 모두에게 공유하기 위한 저장소 -->
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore-compat.js"></script>
+<script>
+  var firebaseConfig = {
+    apiKey: "AIzaSyCbkdr6aNW8v_tU-yUnfDfzdEfB3g6B4jY",
+    authDomain: "nowthere-be6f1.firebaseapp.com",
+    projectId: "nowthere-be6f1",
+    storageBucket: "nowthere-be6f1.firebasestorage.app",
+    messagingSenderId: "341958279141",
+    appId: "1:341958279141:web:f18a7ea669ab022dc3790c"
+  };
+  firebase.initializeApp(firebaseConfig);
+  var db = firebase.firestore();
+</script>
+
 <script>
   // 1. 지도 초기화 (기본 중심: 서울)
   var mapContainer = document.getElementById('map');
@@ -105,6 +122,33 @@
   var ps = new kakao.maps.services.Places();
 
   var markers = [];
+
+  // 소유자 식별 (로그인 없이, 이 브라우저에서 등록한 것만 "내 것"으로 인식)
+  function getMyOwnerId() {
+    var key = 'gogibiwa_owner_id';
+    var id = localStorage.getItem(key);
+    if (!id) {
+      id = 'u_' + Date.now() + '_' + Math.random().toString(36).slice(2, 10);
+      localStorage.setItem(key, id);
+    }
+    return id;
+  }
+  var myOwnerId = getMyOwnerId();
+
+  // 관리자 모드 (신고 처리 등 목적, 브랜드 로고 5회 클릭으로 진입 - 임시 방식)
+  var isAdmin = false;
+  var logoClickCount = 0;
+  document.querySelector('#header .brand').addEventListener('click', function() {
+    logoClickCount++;
+    if (logoClickCount >= 5) {
+      logoClickCount = 0;
+      var pw = prompt('관리자 비밀번호를 입력하세요');
+      if (pw === 'gogibiwa2026') {
+        isAdmin = true;
+        showStatus('🔑 관리자 모드로 전환되었습니다.');
+      }
+    }
+  });
 
   function clearMarkers() {
     markers.forEach(function(m){ m.setMap(null); });
@@ -118,15 +162,17 @@
     setTimeout(function(){ el.style.display = 'none'; }, 3000);
   }
 
-  // 2. 샘플 라이브 스팟 데이터 (임시 - 나중에 실제 등록 데이터로 교체 예정)
-  //    videoId는 전부 확실히 임베드되는 테스트 영상으로 통일 (지금 목적은 "매칭 로직"이 되는지 확인)
-  var liveSpots = [
+  // 2. 샘플 스팟 (고정 데모용 - Firestore에 저장되지 않음, 관리자만 삭제 가능)
+  var sampleSpots = [
     { name: '서울시청 인근 (샘플)', lat: 37.5665, lng: 126.9780, type: 'youtube', videoId: 'jNQXAC9IVRw' },
     { name: '해운대해수욕장 인근 (샘플)', lat: 35.1587, lng: 129.1604, type: 'youtube', videoId: 'jNQXAC9IVRw' },
     { name: '설악산 입구 인근 (샘플)', lat: 38.1194, lng: 128.4657, type: 'youtube', videoId: 'jNQXAC9IVRw' },
     { name: '남이섬 인근 (샘플)', lat: 37.7906, lng: 127.5262, type: 'youtube', videoId: 'jNQXAC9IVRw' },
     { name: '경포호 인근 (샘플)', lat: 37.7955, lng: 128.9075, type: 'youtube', videoId: 'jNQXAC9IVRw' }
   ];
+
+  var sharedSpots = [];      // Firestore에서 실시간으로 채워지는, 모두에게 공유되는 실제 등록 데이터
+  var liveSpots = sampleSpots; // 거리 매칭에 쓰이는 통합 리스트 (Firestore 로드되면 자동 갱신됨)
 
   var DISTANCE_THRESHOLD_KM = 15; // 이 거리(km) 넘으면 "참고용" 경고 표시
 
@@ -175,20 +221,45 @@
       '" frameborder="0" allowfullscreen></iframe>';
   }
 
-  // 스팟 클릭시 모달 열기 (타입에 따라 인스타그램이면 임베드 스크립트 재실행)
+  // 스팟 클릭시 모달 열기 (타입에 따라 인스타그램이면 임베드 스크립트 재실행) + 권한 있을 때만 삭제 버튼
   function openSpotModal(spot) {
-    openModal(spot.name, buildEmbedHtml(spot));
+    var canDelete = isAdmin || (spot.ownerId && spot.ownerId === myOwnerId);
+    var body = buildEmbedHtml(spot);
+    if (canDelete) {
+      body += '<button id="deleteSpotBtn" style="margin-top:12px;padding:8px 14px;border-radius:8px;border:1px solid #ddd;background:white;color:#888;cursor:pointer;font-size:13px;">🗑 이 스팟 삭제' + (isAdmin && spot.ownerId !== myOwnerId ? ' (관리자)' : '') + '</button>';
+    }
+    openModal(spot.name, body);
     if (spot.type === 'instagram' && window.instgrm) {
       window.instgrm.Embeds.process();
+    }
+    if (canDelete) {
+      document.getElementById('deleteSpotBtn').addEventListener('click', function() {
+        if (!confirm('"' + spot.name + '"을(를) 삭제하시겠습니까?')) return;
+        if (spot.id) {
+          // Firestore에 저장된 공유 데이터 → 서버에서 삭제 (모두에게 반영됨)
+          db.collection('spots').doc(spot.id).delete().catch(function(err) {
+            showStatus('삭제 실패: ' + err.message);
+          });
+        } else {
+          // 샘플(고정 데모) 데이터 → 로컬에서만 제거
+          if (spot.marker) spot.marker.setMap(null);
+          var idx = sampleSpots.indexOf(spot);
+          if (idx > -1) sampleSpots.splice(idx, 1);
+        }
+        document.getElementById('modal').classList.remove('show');
+        document.getElementById('modalBody').innerHTML = '';
+        showStatus('🗑 삭제되었습니다.');
+      });
     }
   }
 
   // 샘플 스팟들을 지도에 핀으로 항상 표시 (타입별 색상 구분)
   function addLiveSpotPins() {
-    liveSpots.forEach(function(spot) {
+    sampleSpots.forEach(function(spot) {
       var pos = new kakao.maps.LatLng(spot.lat, spot.lng);
       var img = spot.type === 'instagram' ? blueMarkerImage() : redMarkerImage();
       var marker = new kakao.maps.Marker({ position: pos, map: map, image: img });
+      spot.marker = marker;
       kakao.maps.event.addListener(marker, 'click', function() {
         openSpotModal(spot);
       });
@@ -196,6 +267,34 @@
     });
   }
   addLiveSpotPins();
+
+  // Firestore 실시간 구독: 누군가 등록/삭제하면 모든 접속자의 화면에 즉시 반영됨
+  var sharedMarkers = [];
+  db.collection('spots').onSnapshot(function(querySnapshot) {
+    // 기존 공유 마커 전부 지우고 새로 그림
+    sharedMarkers.forEach(function(m) { m.setMap(null); });
+    sharedMarkers = [];
+    sharedSpots = [];
+
+    querySnapshot.forEach(function(docSnap) {
+      var d = docSnap.data();
+      var spot = {
+        id: docSnap.id, name: d.name, lat: d.lat, lng: d.lng,
+        type: d.type, videoId: d.videoId, permalink: d.permalink, ownerId: d.ownerId
+      };
+      var pos = new kakao.maps.LatLng(spot.lat, spot.lng);
+      var img = spot.type === 'instagram' ? blueMarkerImage() : redMarkerImage();
+      var marker = new kakao.maps.Marker({ position: pos, map: map, image: img });
+      spot.marker = marker;
+      kakao.maps.event.addListener(marker, 'click', function() { openSpotModal(spot); });
+      sharedMarkers.push(marker);
+      sharedSpots.push(spot);
+    });
+
+    liveSpots = sampleSpots.concat(sharedSpots); // 거리 매칭 대상 갱신
+  }, function(err) {
+    showStatus('⚠️ 데이터 연결 오류: ' + err.message);
+  });
 
   // 3. 검색 기능
   function searchPlace() {
@@ -288,7 +387,7 @@
       '<div class="formRow"><label>링크 (유튜브 라이브 또는 인스타그램 릴스/게시물)</label><input id="regUrl" type="text" placeholder="https://youtube.com/watch?v=... 또는 https://instagram.com/reel/..."></div>' +
       '<p id="placeHint"></p>' +
       '<button id="confirmRegisterBtn">등록하기</button>' +
-      '<p style="font-size:12px;color:#999;margin-top:10px;">🔴 유튜브 라이브 = 빨간 핀(지금 이 순간) · 🔵 인스타그램 = 파란 핀(그때 그 순간의 기록)<br>※ 지금은 데모 버전이라 등록한 핀은 내 화면에서만 보이고, 새로고침하면 사라집니다.</p>';
+      '<p style="font-size:12px;color:#999;margin-top:10px;">🔴 유튜브 라이브 = 빨간 핀(지금 이 순간) · 🔵 인스타그램 = 파란 핀(그때 그 순간의 기록)<br>등록하시면 모든 방문자에게 공유됩니다.</p>';
     openModal('새 스팟 등록', formHtml);
 
     document.getElementById('confirmRegisterBtn').addEventListener('click', function() {
@@ -299,20 +398,23 @@
       if (!title) { document.getElementById('placeHint').textContent = '장소 이름을 입력해주세요.'; return; }
       if (!info) { document.getElementById('placeHint').textContent = '유튜브(watch/live) 또는 인스타그램(reel/p) 링크만 지원합니다. 링크를 다시 확인해주세요.'; return; }
 
-      var newSpot = { name: title, lat: pendingLatLng.getLat(), lng: pendingLatLng.getLng(), type: info.type };
+      var newSpot = { name: title, lat: pendingLatLng.getLat(), lng: pendingLatLng.getLng(), type: info.type, ownerId: myOwnerId };
       if (info.type === 'youtube') newSpot.videoId = info.videoId;
       else newSpot.permalink = info.permalink;
 
-      liveSpots.push(newSpot);
+      var confirmBtn = document.getElementById('confirmRegisterBtn');
+      confirmBtn.disabled = true;
+      confirmBtn.textContent = '등록 중...';
 
-      var img = info.type === 'instagram' ? blueMarkerImage() : redMarkerImage();
-      var marker = new kakao.maps.Marker({ position: pendingLatLng, map: map, image: img });
-      kakao.maps.event.addListener(marker, 'click', function() { openSpotModal(newSpot); });
-      markers.push(marker);
-
-      document.getElementById('modal').classList.remove('show');
-      document.getElementById('modalBody').innerHTML = '';
-      showStatus('✅ "' + title + '" 등록 완료! 지도에서 확인해보세요');
+      db.collection('spots').add(newSpot).then(function() {
+        document.getElementById('modal').classList.remove('show');
+        document.getElementById('modalBody').innerHTML = '';
+        showStatus('✅ "' + title + '" 등록 완료! 지도에서 확인해보세요 (모두에게 공유됩니다)');
+      }).catch(function(err) {
+        document.getElementById('placeHint').textContent = '등록 실패: ' + err.message;
+        confirmBtn.disabled = false;
+        confirmBtn.textContent = '등록하기';
+      });
     });
   }
 
