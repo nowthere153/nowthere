@@ -301,6 +301,19 @@
     var keyword = document.getElementById('searchInput').value.trim();
     if (!keyword) return;
 
+    // 먼저 등록된 스팟 이름 자체와 일치하는지 확인 (예: "강강유" 검색시 바로 그 스팟으로 이동)
+    var nameMatch = liveSpots.find(function(s) {
+      return s.name.toLowerCase().indexOf(keyword.toLowerCase()) > -1;
+    });
+    if (nameMatch) {
+      clearMarkers();
+      map.setCenter(new kakao.maps.LatLng(nameMatch.lat, nameMatch.lng));
+      map.setLevel(4);
+      openSpotModal(nameMatch);
+      showStatus('"' + keyword + '" 등록된 스팟을 찾았습니다!');
+      return;
+    }
+
     ps.keywordSearch(keyword, function(data, status) {
       if (status === kakao.maps.services.Status.OK) {
         clearMarkers();
