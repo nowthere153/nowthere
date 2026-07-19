@@ -45,6 +45,13 @@
     box-shadow: 0 2px 10px rgba(0,0,0,0.25);
   }
 
+  #myJourneysBtn {
+    position: absolute; top: 60px; right: 16px; z-index: 12;
+    background: white; color: #4338ca; border: 1px solid #ddd; padding: 8px 12px;
+    border-radius: 16px; font-size: 12.5px; font-weight: 600; cursor: pointer;
+    box-shadow: 0 2px 8px rgba(0,0,0,0.15);
+  }
+
   #placingBanner {
     display: none; position: absolute; bottom: 16px; left: 50%; transform: translateX(-50%);
     z-index: 13; background: #111827; color: white; padding: 10px 18px; border-radius: 20px;
@@ -99,6 +106,7 @@
 </div>
 
 <button id="registerBtn">📍 지금 여기 보여주기</button>
+<button id="myJourneysBtn">🧭 내 기록 목록</button>
 <button id="locateBtn" title="현위치">🎯</button>
 <div id="placingBanner">📍 지도를 클릭해서 위치를 지정해주세요 (확대·축소 후에도 다시 클릭하면 됩니다)</div>
 
@@ -451,10 +459,30 @@
   });
 
   // 3. 검색 기능
+  // 기록 이름 비교용 정규화: 공백/특수문자 무시, 대소문자 무시 (예: "26년 지리산 여행" == "26년지리산여행")
+  function normalizeJourney(s) {
+    return (s || '').toLowerCase().replace(/[\s\-_.,·]+/g, '');
+  }
+
   function findJourneyMatches(keyword) {
+    var normKeyword = normalizeJourney(keyword);
+    if (!normKeyword) return [];
     return liveSpots.filter(function(s) {
-      return s.journey && s.journey.toLowerCase().indexOf(keyword.toLowerCase()) > -1;
+      return s.journey && normalizeJourney(s.journey).indexOf(normKeyword) > -1;
     }).sort(function(a, b) { return (a.createdAt || 0) - (b.createdAt || 0); });
+  }
+
+  // 내가(이 브라우저가) 지금까지 등록한 기록 이름 목록 (자동완성/내 기록 보기용)
+  function getMyJourneyNames() {
+    var seen = {};
+    var list = [];
+    sharedSpots.forEach(function(s) {
+      if (s.ownerId === myOwnerId && s.journey) {
+        var key = normalizeJourney(s.journey);
+        if (!seen[key]) { seen[key] = true; list.push(s.journey); }
+      }
+    });
+    return list;
   }
 
   function openJourneyModal(journeyName, spotsList) {
@@ -584,6 +612,30 @@
     showStatus('📍 지도를 클릭해서 보여주고 싶은 위치를 지정해주세요');
   });
 
+  document.getElementById('myJourneysBtn').addEventListener('click', function() {
+    var names = getMyJourneyNames();
+    if (names.length === 0) {
+      openModal('🧭 내 기록 목록', '<p style="color:#888;">아직 만든 기록 여정이 없습니다. 등록할 때 "기록 이름"을 입력하면 여기 모입니다.</p>');
+      return;
+    }
+    var body = '<div style="display:flex;flex-direction:column;gap:8px;">' +
+      names.map(function(name) {
+        var count = findJourneyMatches(name).length;
+        return '<button class="myJourneyBtn" data-name="' + name.replace(/"/g, '&quot;') + '" style="text-align:left;padding:10px 12px;border-radius:8px;border:1px solid #eee;background:#f9f9f9;cursor:pointer;font-size:14px;">🧭 ' + name + ' <span style="color:#999;font-size:12px;">(' + count + '곳)</span></button>';
+      }).join('') + '</div>';
+    openModal('🧭 내 기록 목록', body);
+    document.querySelectorAll('.myJourneyBtn').forEach(function(btn) {
+      btn.addEventListener('click', function() {
+        var name = btn.getAttribute('data-name');
+        var matches = findJourneyMatches(name);
+        var bounds = new kakao.maps.LatLngBounds();
+        matches.forEach(function(s) { bounds.extend(new kakao.maps.LatLng(s.lat, s.lng)); });
+        map.setBounds(bounds);
+        openJourneyModal(name, matches);
+      });
+    });
+  });
+
   // 등록모드일 때는 지도를 몇 번을 클릭(줌 조정 후 재클릭 포함)해도 항상 등록창이 뜸
   kakao.maps.event.addListener(map, 'click', function(mouseEvent) {
     if (!placingMode) return;
@@ -635,7 +687,10 @@
       '<div class="formRow"><label>장소 이름</label><input id="regTitle" type="text" placeholder="예: 우리집 앞마당, OO캠핑장"></div>' +
       '<div class="formRow"><label>어떤 콘텐츠인가요?</label><div id="catButtons" style="display:flex;gap:6px;flex-wrap:wrap;">' + catButtonsHtml + '</div></div>' +
       '<div class="formRow"><label>링크 (유튜브 라이브 또는 인스타그램 릴스/게시물)</label><input id="regUrl" type="text" placeholder="https://youtube.com/watch?v=... 또는 https://instagram.com/reel/..."></div>' +
-      '<div class="formRow"><label>기록 이름 <span style="color:#999;font-weight:normal;">(선택 — 여러 곳을 하나의 여정으로 묶고 싶을 때)</span></label><input id="regJourney" type="text" placeholder="예: 26년7월 지리산여행"></div>' +
+      '<div class="formRow"><label>기록 이름 <span style="color:#999;font-weight:normal;">(선택 — 여러 곳을 하나의 여정으로 묶고 싶을 때)</span></label>' +
+      '<input id="regJourney" type="text" list="journeyList" placeholder="예: 26년7월 지리산여행">' +
+      '<datalist id="journeyList">' + getMyJourneyNames().map(function(j) { return '<option value="' + j + '"></option>'; }).join('') + '</datalist>' +
+      '</div>' +
       '<p id="placeHint"></p>' +
       '<button id="confirmRegisterBtn">등록하기</button>' +
       '<p style="font-size:12px;color:#999;margin-top:10px;">🔴 유튜브 라이브 = 빨간 핀(지금 이 순간) · 🔵 인스타그램 = 파란 핀(그때 그 순간의 기록)<br>등록하시면 모든 방문자에게 공유됩니다.</p>' +
