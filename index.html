@@ -296,9 +296,15 @@
     var canReport = !!spot.id; // Firestore에 저장된 공유 스팟만 신고 가능 (샘플 데이터 제외)
     var body = '';
     if (spot.category) {
-      body += '<span style="display:inline-block;margin-bottom:8px;padding:4px 10px;border-radius:12px;background:#f2f2f2;font-size:12px;">' + categoryLabel(spot.category) + '</span>';
+      body += '<span style="display:inline-block;margin-bottom:8px;margin-right:6px;padding:4px 10px;border-radius:12px;background:#f2f2f2;font-size:12px;">' + categoryLabel(spot.category) + '</span>';
+    }
+    if (spot.journey) {
+      body += '<span style="display:inline-block;margin-bottom:8px;padding:4px 10px;border-radius:12px;background:#eef2ff;color:#4338ca;font-size:12px;">🧭 ' + spot.journey + '</span>';
     }
     body += buildEmbedHtml(spot);
+    if (spot.journey) {
+      body += '<button id="viewJourneyBtn" style="margin-top:10px;padding:8px 14px;border-radius:8px;border:1px solid #ddd;background:white;color:#4338ca;cursor:pointer;font-size:13px;">🧭 이 여정 전체보기</button>';
+    }
 
     if (isAdmin && spot.reportCount) {
       body += '<p style="margin-top:10px;font-size:12px;color:#c2410c;">🚩 신고 ' + spot.reportCount + '건 누적 (관리자만 표시)</p>';
@@ -317,6 +323,11 @@
     openModal(spot.name, body);
     if (spot.type === 'instagram' && window.instgrm) {
       window.instgrm.Embeds.process();
+    }
+    if (spot.journey) {
+      document.getElementById('viewJourneyBtn').addEventListener('click', function() {
+        openJourneyModal(spot.journey, findJourneyMatches(spot.journey));
+      });
     }
 
     if (canDelete) {
@@ -415,7 +426,9 @@
       var spot = {
         id: docSnap.id, name: d.name, lat: d.lat, lng: d.lng,
         type: d.type, videoId: d.videoId, permalink: d.permalink, ownerId: d.ownerId,
-        reportCount: d.reportCount || 0, category: d.category || null
+        reportCount: d.reportCount || 0, category: d.category || null,
+        journey: d.journey || null,
+        createdAt: (d.createdAt && d.createdAt.toMillis) ? d.createdAt.toMillis() : 0
       };
       var pos = new kakao.maps.LatLng(spot.lat, spot.lng);
       var img = spot.type === 'instagram' ? blueMarkerImage() : redMarkerImage();
@@ -438,9 +451,41 @@
   });
 
   // 3. 검색 기능
+  function findJourneyMatches(keyword) {
+    return liveSpots.filter(function(s) {
+      return s.journey && s.journey.toLowerCase().indexOf(keyword.toLowerCase()) > -1;
+    }).sort(function(a, b) { return (a.createdAt || 0) - (b.createdAt || 0); });
+  }
+
+  function openJourneyModal(journeyName, spotsList) {
+    var body = '<p style="color:#666;margin-bottom:10px;">등록 순서대로 ' + spotsList.length + '곳의 기록입니다.</p><div style="display:flex;flex-direction:column;gap:8px;">' +
+      spotsList.map(function(s, idx) {
+        return '<button class="journeySpotBtn" data-idx="' + idx + '" style="text-align:left;padding:10px 12px;border-radius:8px;border:1px solid #eee;background:#f9f9f9;cursor:pointer;font-size:14px;">' +
+          (idx + 1) + '. ' + s.name + (s.category ? ' · ' + categoryLabel(s.category) : '') + '</button>';
+      }).join('') + '</div>';
+    openModal('🧭 ' + journeyName, body);
+    document.querySelectorAll('.journeySpotBtn').forEach(function(btn) {
+      btn.addEventListener('click', function() {
+        openSpotModal(spotsList[parseInt(btn.getAttribute('data-idx'), 10)]);
+      });
+    });
+  }
+
   function searchPlace() {
     var keyword = document.getElementById('searchInput').value.trim();
     if (!keyword) return;
+
+    // 0. 여행기록(여정) 이름과 먼저 매칭 - 예: "지리산여행" 검색시 그 여정 전체를 보여줌
+    var journeyMatches = findJourneyMatches(keyword);
+    if (journeyMatches.length > 0) {
+      clearMarkers();
+      var jBounds = new kakao.maps.LatLngBounds();
+      journeyMatches.forEach(function(s) { jBounds.extend(new kakao.maps.LatLng(s.lat, s.lng)); });
+      map.setBounds(jBounds);
+      openJourneyModal(keyword, journeyMatches);
+      showStatus('"' + keyword + '" 여정 ' + journeyMatches.length + '곳을 지도에 표시했습니다');
+      return;
+    }
 
     // 먼저 등록된 스팟 이름 자체와 일치하는지 확인 (예: "강강유" 검색시 바로 그 스팟으로 이동)
     var nameMatch = liveSpots.find(function(s) {
@@ -590,6 +635,7 @@
       '<div class="formRow"><label>장소 이름</label><input id="regTitle" type="text" placeholder="예: 우리집 앞마당, OO캠핑장"></div>' +
       '<div class="formRow"><label>어떤 콘텐츠인가요?</label><div id="catButtons" style="display:flex;gap:6px;flex-wrap:wrap;">' + catButtonsHtml + '</div></div>' +
       '<div class="formRow"><label>링크 (유튜브 라이브 또는 인스타그램 릴스/게시물)</label><input id="regUrl" type="text" placeholder="https://youtube.com/watch?v=... 또는 https://instagram.com/reel/..."></div>' +
+      '<div class="formRow"><label>기록 이름 <span style="color:#999;font-weight:normal;">(선택 — 여러 곳을 하나의 여정으로 묶고 싶을 때)</span></label><input id="regJourney" type="text" placeholder="예: 26년7월 지리산여행"></div>' +
       '<p id="placeHint"></p>' +
       '<button id="confirmRegisterBtn">등록하기</button>' +
       '<p style="font-size:12px;color:#999;margin-top:10px;">🔴 유튜브 라이브 = 빨간 핀(지금 이 순간) · 🔵 인스타그램 = 파란 핀(그때 그 순간의 기록)<br>등록하시면 모든 방문자에게 공유됩니다.</p>' +
@@ -623,6 +669,9 @@
       if (!info) { document.getElementById('placeHint').textContent = '유튜브(watch/live) 또는 인스타그램(reel/p) 링크만 지원합니다. 링크를 다시 확인해주세요.'; return; }
 
       var newSpot = { name: title, lat: pendingLatLng.getLat(), lng: pendingLatLng.getLng(), type: info.type, ownerId: myOwnerId, category: selectedCategory };
+      var journeyInput = document.getElementById('regJourney').value.trim();
+      if (journeyInput) newSpot.journey = journeyInput;
+      newSpot.createdAt = firebase.firestore.FieldValue.serverTimestamp();
       if (info.type === 'youtube') newSpot.videoId = info.videoId;
       else newSpot.permalink = info.permalink;
 
