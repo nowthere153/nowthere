@@ -163,6 +163,7 @@
       if (pw === 'gogibiwa2026') {
         isAdmin = true;
         showStatus('🔑 관리자 모드로 전환되었습니다.');
+        if (lastSnapshot) renderSharedSpots(lastSnapshot); // 신고 누적으로 숨겨졌던 스팟도 즉시 표시
       }
     }
   });
@@ -238,17 +239,31 @@
       '" frameborder="0" allowfullscreen></iframe>';
   }
 
-  // 스팟 클릭시 모달 열기 (타입에 따라 인스타그램이면 임베드 스크립트 재실행) + 권한 있을 때만 삭제 버튼
+  // 스팟 클릭시 모달 열기 (타입에 따라 인스타그램이면 임베드 스크립트 재실행) + 권한별 삭제/신고 버튼
   function openSpotModal(spot) {
     var canDelete = isAdmin || (spot.ownerId && spot.ownerId === myOwnerId);
+    var canReport = !!spot.id; // Firestore에 저장된 공유 스팟만 신고 가능 (샘플 데이터 제외)
     var body = buildEmbedHtml(spot);
-    if (canDelete) {
-      body += '<button id="deleteSpotBtn" style="margin-top:12px;padding:8px 14px;border-radius:8px;border:1px solid #ddd;background:white;color:#888;cursor:pointer;font-size:13px;">🗑 이 스팟 삭제' + (isAdmin && spot.ownerId !== myOwnerId ? ' (관리자)' : '') + '</button>';
+
+    if (isAdmin && spot.reportCount) {
+      body += '<p style="margin-top:10px;font-size:12px;color:#c2410c;">🚩 신고 ' + spot.reportCount + '건 누적 (관리자만 표시)</p>';
     }
+
+    var btnRow = '<div style="margin-top:12px;display:flex;gap:8px;flex-wrap:wrap;">';
+    if (canDelete) {
+      btnRow += '<button id="deleteSpotBtn" style="padding:8px 14px;border-radius:8px;border:1px solid #ddd;background:white;color:#888;cursor:pointer;font-size:13px;">🗑 이 스팟 삭제' + (isAdmin && spot.ownerId !== myOwnerId ? ' (관리자)' : '') + '</button>';
+    }
+    if (canReport) {
+      btnRow += '<button id="reportSpotBtn" style="padding:8px 14px;border-radius:8px;border:1px solid #ddd;background:white;color:#c2410c;cursor:pointer;font-size:13px;">🚩 신고</button>';
+    }
+    btnRow += '</div><div id="reportReasons" style="display:none;margin-top:8px;font-size:13px;"></div>';
+    body += btnRow;
+
     openModal(spot.name, body);
     if (spot.type === 'instagram' && window.instgrm) {
       window.instgrm.Embeds.process();
     }
+
     if (canDelete) {
       document.getElementById('deleteSpotBtn').addEventListener('click', function() {
         if (!confirm('"' + spot.name + '"을(를) 삭제하시겠습니까?')) return;
@@ -268,6 +283,46 @@
         showStatus('🗑 삭제되었습니다.');
       });
     }
+
+    if (canReport) {
+      document.getElementById('reportSpotBtn').addEventListener('click', function() {
+        var box = document.getElementById('reportReasons');
+        box.style.display = 'block';
+        box.innerHTML =
+          '<p style="color:#666;margin-bottom:6px;">신고 사유를 선택해주세요</p>' +
+          '<div style="display:flex;gap:6px;flex-wrap:wrap;">' +
+          ['얼굴노출', '풍경아님', '위치오류', '무관영상', '기타'].map(function(reason) {
+            return '<button class="reportReasonBtn" data-reason="' + reason + '" style="padding:6px 10px;border-radius:6px;border:1px solid #ddd;background:#f9f9f9;cursor:pointer;font-size:12px;">' + reason + '</button>';
+          }).join('') + '</div>';
+
+        box.querySelectorAll('.reportReasonBtn').forEach(function(btn) {
+          btn.addEventListener('click', function() {
+            submitReport(spot, btn.getAttribute('data-reason'));
+          });
+        });
+      });
+    }
+  }
+
+  // 신고 접수 (같은 브라우저 중복신고 방지, 3건 누적시 자동 숨김 - 관리자 제외)
+  function submitReport(spot, reason) {
+    var reportedKey = 'gogibiwa_reported_ids';
+    var reported = JSON.parse(localStorage.getItem(reportedKey) || '[]');
+    if (reported.indexOf(spot.id) > -1) {
+      showStatus('이미 신고하신 스팟입니다.');
+      return;
+    }
+    db.collection('spots').doc(spot.id).update({
+      reportCount: firebase.firestore.FieldValue.increment(1)
+    }).then(function() {
+      reported.push(spot.id);
+      localStorage.setItem(reportedKey, JSON.stringify(reported));
+      document.getElementById('modal').classList.remove('show');
+      document.getElementById('modalBody').innerHTML = '';
+      showStatus('🚩 신고(' + reason + ')가 접수되었습니다. 검토 후 조치됩니다.');
+    }).catch(function(err) {
+      showStatus('신고 처리 실패: ' + err.message);
+    });
   }
 
   // 샘플 스팟들을 지도에 핀으로 항상 표시 (타입별 색상 구분)
@@ -285,19 +340,25 @@
   }
   addLiveSpotPins();
 
-  // Firestore 실시간 구독: 누군가 등록/삭제하면 모든 접속자의 화면에 즉시 반영됨
+  // Firestore 실시간 구독: 누군가 등록/삭제/신고하면 모든 접속자의 화면에 즉시 반영됨
   var sharedMarkers = [];
-  db.collection('spots').onSnapshot(function(querySnapshot) {
-    // 기존 공유 마커 전부 지우고 새로 그림
+  var REPORT_HIDE_THRESHOLD = 3; // 이 값 이상 신고 누적시 일반 사용자에게는 숨김 (관리자는 계속 보임)
+  var lastSnapshot = null;
+
+  function renderSharedSpots(querySnapshot) {
     sharedMarkers.forEach(function(m) { m.setMap(null); });
     sharedMarkers = [];
     sharedSpots = [];
 
     querySnapshot.forEach(function(docSnap) {
       var d = docSnap.data();
+      var hiddenByReports = (d.reportCount || 0) >= REPORT_HIDE_THRESHOLD && !isAdmin;
+      if (hiddenByReports) return; // 신고 누적 스팟은 일반 사용자 화면에서 제외 (데이터는 삭제되지 않음)
+
       var spot = {
         id: docSnap.id, name: d.name, lat: d.lat, lng: d.lng,
-        type: d.type, videoId: d.videoId, permalink: d.permalink, ownerId: d.ownerId
+        type: d.type, videoId: d.videoId, permalink: d.permalink, ownerId: d.ownerId,
+        reportCount: d.reportCount || 0
       };
       var pos = new kakao.maps.LatLng(spot.lat, spot.lng);
       var img = spot.type === 'instagram' ? blueMarkerImage() : redMarkerImage();
@@ -309,6 +370,11 @@
     });
 
     liveSpots = sampleSpots.concat(sharedSpots); // 거리 매칭 대상 갱신
+  }
+
+  db.collection('spots').onSnapshot(function(querySnapshot) {
+    lastSnapshot = querySnapshot;
+    renderSharedSpots(querySnapshot);
   }, function(err) {
     showStatus('⚠️ 데이터 연결 오류: ' + err.message);
   });
