@@ -485,11 +485,44 @@
     return list;
   }
 
+  var journeyPolyline = null;
+  function clearJourneyPolyline() {
+    if (journeyPolyline) { journeyPolyline.setMap(null); journeyPolyline = null; }
+  }
+  function drawJourneyPath(list) {
+    clearJourneyPolyline();
+    if (list.length < 2) return;
+    var path = list.map(function(s) { return new kakao.maps.LatLng(s.lat, s.lng); });
+    journeyPolyline = new kakao.maps.Polyline({
+      path: path, strokeWeight: 3, strokeColor: '#4338ca', strokeOpacity: 0.85, strokeStyle: 'shortdash'
+    });
+    journeyPolyline.setMap(map);
+  }
+
+  // 등록시각 기준 상대적 일자 라벨 (예: "1일차 · 7/15") - 국내 근거리든 해외 원거리든 동일 로직
+  function dayLabel(list, s) {
+    var times = list.map(function(x) { return x.createdAt; }).filter(Boolean);
+    if (!s.createdAt || !times.length) return '';
+    var minTime = Math.min.apply(null, times);
+    var diffDays = Math.floor((s.createdAt - minTime) / 86400000);
+    var d = new Date(s.createdAt);
+    return (diffDays + 1) + '일차 · ' + (d.getMonth() + 1) + '/' + d.getDate() + ' ';
+  }
+
   function openJourneyModal(journeyName, spotsList) {
+    if (spotsList.length > 0) {
+      var bounds = new kakao.maps.LatLngBounds();
+      spotsList.forEach(function(s) { bounds.extend(new kakao.maps.LatLng(s.lat, s.lng)); });
+      map.setBounds(bounds);
+    }
+    drawJourneyPath(spotsList);
+
     var body = '<p style="color:#666;margin-bottom:10px;">등록 순서대로 ' + spotsList.length + '곳의 기록입니다.</p><div style="display:flex;flex-direction:column;gap:8px;">' +
       spotsList.map(function(s, idx) {
+        var label = dayLabel(spotsList, s);
         return '<button class="journeySpotBtn" data-idx="' + idx + '" style="text-align:left;padding:10px 12px;border-radius:8px;border:1px solid #eee;background:#f9f9f9;cursor:pointer;font-size:14px;">' +
-          (idx + 1) + '. ' + s.name + (s.category ? ' · ' + categoryLabel(s.category) : '') + '</button>';
+          (idx + 1) + '. ' + s.name + (s.category ? ' · ' + categoryLabel(s.category) : '') +
+          (label ? '<br><span style="font-size:11px;color:#999;">' + label + '</span>' : '') + '</button>';
       }).join('') + '</div>';
     openModal('🧭 ' + journeyName, body);
     document.querySelectorAll('.journeySpotBtn').forEach(function(btn) {
@@ -507,9 +540,6 @@
     var journeyMatches = findJourneyMatches(keyword);
     if (journeyMatches.length > 0) {
       clearMarkers();
-      var jBounds = new kakao.maps.LatLngBounds();
-      journeyMatches.forEach(function(s) { jBounds.extend(new kakao.maps.LatLng(s.lat, s.lng)); });
-      map.setBounds(jBounds);
       openJourneyModal(keyword, journeyMatches);
       showStatus('"' + keyword + '" 여정 ' + journeyMatches.length + '곳을 지도에 표시했습니다');
       return;
@@ -627,11 +657,7 @@
     document.querySelectorAll('.myJourneyBtn').forEach(function(btn) {
       btn.addEventListener('click', function() {
         var name = btn.getAttribute('data-name');
-        var matches = findJourneyMatches(name);
-        var bounds = new kakao.maps.LatLngBounds();
-        matches.forEach(function(s) { bounds.extend(new kakao.maps.LatLng(s.lat, s.lng)); });
-        map.setBounds(bounds);
-        openJourneyModal(name, matches);
+        openJourneyModal(name, findJourneyMatches(name));
       });
     });
   });
@@ -756,6 +782,7 @@
   document.getElementById('closeBtn').addEventListener('click', function() {
     document.getElementById('modal').classList.remove('show');
     document.getElementById('modalBody').innerHTML = '';
+    clearJourneyPolyline();
   });
 </script>
 
