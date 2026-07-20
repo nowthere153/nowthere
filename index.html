@@ -91,6 +91,17 @@
   #closeBtn {
     float: right; border: none; background: none; font-size: 20px; cursor: pointer;
   }
+  #minimizeBtn {
+    float: right; border: none; background: #f2f2f2; border-radius: 8px; font-size: 15px;
+    cursor: pointer; padding: 4px 8px; margin-right: 8px;
+  }
+  #modal.peek { background: transparent; pointer-events: none; }
+  #modal.peek #modalContent { display: none; }
+  #restoreModalBtn {
+    display: none; position: fixed; bottom: 16px; left: 50%; transform: translateX(-50%);
+    z-index: 101; background: #111827; color: white; border: none; padding: 10px 18px;
+    border-radius: 20px; font-size: 13px; cursor: pointer; box-shadow: 0 2px 10px rgba(0,0,0,0.3);
+  }
   #statusMsg {
     position: absolute; bottom: 16px; left: 50%; transform: translateX(-50%);
     background: white; padding: 8px 16px; border-radius: 20px; font-size: 13px;
@@ -122,11 +133,13 @@
 
 <div id="modal">
   <div id="modalContent">
+    <button id="minimizeBtn" title="지도만 보기">🗺️</button>
     <button id="closeBtn">✕</button>
     <h3 id="modalTitle"></h3>
     <div id="modalBody"></div>
   </div>
 </div>
+<button id="restoreModalBtn">🧭 목록 다시 보기</button>
 
 <!-- ⚠️ 아래 appkey는 발급받으신 JavaScript 키입니다 -->
 <script src="//dapi.kakao.com/v2/maps/sdk.js?appkey=fe07520c037bcd001a849137e09baca6&libraries=services"></script>
@@ -334,7 +347,10 @@
     }
     if (spot.journey) {
       document.getElementById('viewJourneyBtn').addEventListener('click', function() {
-        openJourneyModal(spot.journey, findJourneyMatches(spot.journey));
+        var groups = getAllJourneyGroups(liveSpots);
+        var key = (spot.ownerId || 'unknown') + '|' + normalizeJourney(spot.journey);
+        var g = groups[key];
+        if (g) openJourneyModal(g.name, g.spots);
       });
     }
 
@@ -464,25 +480,40 @@
     return (s || '').toLowerCase().replace(/[\s\-_.,·]+/g, '');
   }
 
-  function findJourneyMatches(keyword) {
-    var normKeyword = normalizeJourney(keyword);
-    if (!normKeyword) return [];
-    return liveSpots.filter(function(s) {
-      return s.journey && normalizeJourney(s.journey).indexOf(normKeyword) > -1;
-    }).sort(function(a, b) { return (a.createdAt || 0) - (b.createdAt || 0); });
+  // 여정을 "등록자 + 기록이름" 조합으로 그룹핑 (동명이인 여정이 서로 섞이지 않도록)
+  function getAllJourneyGroups(list) {
+    var groups = {};
+    list.forEach(function(s) {
+      if (!s.journey) return;
+      var key = (s.ownerId || 'unknown') + '|' + normalizeJourney(s.journey);
+      if (!groups[key]) groups[key] = { name: s.journey, ownerId: s.ownerId, spots: [] };
+      groups[key].spots.push(s);
+    });
+    Object.keys(groups).forEach(function(k) {
+      groups[k].spots.sort(function(a, b) { return (a.createdAt || 0) - (b.createdAt || 0); });
+    });
+    return groups;
   }
 
-  // 내가(이 브라우저가) 지금까지 등록한 기록 이름 목록 (자동완성/내 기록 보기용)
-  function getMyJourneyNames() {
-    var seen = {};
-    var list = [];
-    sharedSpots.forEach(function(s) {
-      if (s.ownerId === myOwnerId && s.journey) {
-        var key = normalizeJourney(s.journey);
-        if (!seen[key]) { seen[key] = true; list.push(s.journey); }
-      }
-    });
-    return list;
+  // 검색어와 일치하는 여정 그룹들을 최근 활동순으로 반환 (여러 사람의 동명 여정도 각각 구분됨)
+  function findJourneyGroupsByKeyword(keyword) {
+    var normKeyword = normalizeJourney(keyword);
+    if (!normKeyword) return [];
+    var groups = getAllJourneyGroups(liveSpots);
+    return Object.keys(groups).map(function(k) { return groups[k]; })
+      .filter(function(g) { return normalizeJourney(g.name).indexOf(normKeyword) > -1; })
+      .sort(function(a, b) {
+        var aLatest = Math.max.apply(null, a.spots.map(function(s) { return s.createdAt || 0; }).concat([0]));
+        var bLatest = Math.max.apply(null, b.spots.map(function(s) { return s.createdAt || 0; }).concat([0]));
+        return bLatest - aLatest; // 최근 활동순
+      });
+  }
+
+  // 내가(이 브라우저가) 만든 여정 그룹 목록
+  function getMyJourneyGroups() {
+    var groups = getAllJourneyGroups(sharedSpots);
+    return Object.keys(groups).map(function(k) { return groups[k]; })
+      .filter(function(g) { return g.ownerId === myOwnerId; });
   }
 
   var journeyPolyline = null;
@@ -507,6 +538,22 @@
     var diffDays = Math.floor((s.createdAt - minTime) / 86400000);
     var d = new Date(s.createdAt);
     return (diffDays + 1) + '일차 · ' + (d.getMonth() + 1) + '/' + d.getDate() + ' ';
+  }
+
+  function openJourneyPickerModal(keyword, groups) {
+    var body = '<p style="color:#666;margin-bottom:10px;">"' + keyword + '"이(가) 포함된 기록이 ' + groups.length + '건 있습니다. 하나를 선택해주세요.</p>' +
+      '<div style="display:flex;flex-direction:column;gap:8px;">' +
+      groups.map(function(g, idx) {
+        var mine = g.ownerId === myOwnerId ? ' <span style="color:#4338ca;">· 내 기록</span>' : '';
+        return '<button class="journeyPickBtn" data-idx="' + idx + '" style="text-align:left;padding:10px 12px;border-radius:8px;border:1px solid #eee;background:#f9f9f9;cursor:pointer;font-size:14px;">🧭 ' + g.name + ' <span style="color:#999;font-size:12px;">(' + g.spots.length + '곳)</span>' + mine + '</button>';
+      }).join('') + '</div>';
+    openModal('🔎 "' + keyword + '" 검색 결과', body);
+    document.querySelectorAll('.journeyPickBtn').forEach(function(btn) {
+      btn.addEventListener('click', function() {
+        var g = groups[parseInt(btn.getAttribute('data-idx'), 10)];
+        openJourneyModal(g.name, g.spots);
+      });
+    });
   }
 
   function openJourneyModal(journeyName, spotsList) {
@@ -536,12 +583,17 @@
     var keyword = document.getElementById('searchInput').value.trim();
     if (!keyword) return;
 
-    // 0. 여행기록(여정) 이름과 먼저 매칭 - 예: "지리산여행" 검색시 그 여정 전체를 보여줌
-    var journeyMatches = findJourneyMatches(keyword);
-    if (journeyMatches.length > 0) {
+    // 0. 여행기록(여정) 이름과 먼저 매칭 - 실제 저장된 기록 이름 기준, 여러 사람의 동명 여정은 구분됨
+    var journeyGroups = findJourneyGroupsByKeyword(keyword);
+    if (journeyGroups.length === 1) {
       clearMarkers();
-      openJourneyModal(keyword, journeyMatches);
-      showStatus('"' + keyword + '" 여정 ' + journeyMatches.length + '곳을 지도에 표시했습니다');
+      var g = journeyGroups[0];
+      openJourneyModal(g.name, g.spots);
+      showStatus('"' + g.name + '" 여정 ' + g.spots.length + '곳을 지도에 표시했습니다');
+      return;
+    } else if (journeyGroups.length > 1) {
+      clearMarkers();
+      openJourneyPickerModal(keyword, journeyGroups);
       return;
     }
 
@@ -643,21 +695,20 @@
   });
 
   document.getElementById('myJourneysBtn').addEventListener('click', function() {
-    var names = getMyJourneyNames();
-    if (names.length === 0) {
+    var groups = getMyJourneyGroups();
+    if (groups.length === 0) {
       openModal('🧭 내 기록 목록', '<p style="color:#888;">아직 만든 기록 여정이 없습니다. 등록할 때 "기록 이름"을 입력하면 여기 모입니다.</p>');
       return;
     }
     var body = '<div style="display:flex;flex-direction:column;gap:8px;">' +
-      names.map(function(name) {
-        var count = findJourneyMatches(name).length;
-        return '<button class="myJourneyBtn" data-name="' + name.replace(/"/g, '&quot;') + '" style="text-align:left;padding:10px 12px;border-radius:8px;border:1px solid #eee;background:#f9f9f9;cursor:pointer;font-size:14px;">🧭 ' + name + ' <span style="color:#999;font-size:12px;">(' + count + '곳)</span></button>';
+      groups.map(function(g, idx) {
+        return '<button class="myJourneyBtn" data-idx="' + idx + '" style="text-align:left;padding:10px 12px;border-radius:8px;border:1px solid #eee;background:#f9f9f9;cursor:pointer;font-size:14px;">🧭 ' + g.name + ' <span style="color:#999;font-size:12px;">(' + g.spots.length + '곳)</span></button>';
       }).join('') + '</div>';
     openModal('🧭 내 기록 목록', body);
     document.querySelectorAll('.myJourneyBtn').forEach(function(btn) {
       btn.addEventListener('click', function() {
-        var name = btn.getAttribute('data-name');
-        openJourneyModal(name, findJourneyMatches(name));
+        var g = groups[parseInt(btn.getAttribute('data-idx'), 10)];
+        openJourneyModal(g.name, g.spots);
       });
     });
   });
@@ -715,7 +766,7 @@
       '<div class="formRow"><label>링크 (유튜브 라이브 또는 인스타그램 릴스/게시물)</label><input id="regUrl" type="text" placeholder="https://youtube.com/watch?v=... 또는 https://instagram.com/reel/..."></div>' +
       '<div class="formRow"><label>기록 이름 <span style="color:#999;font-weight:normal;">(선택 — 여러 곳을 하나의 여정으로 묶고 싶을 때)</span></label>' +
       '<input id="regJourney" type="text" list="journeyList" placeholder="예: 26년7월 지리산여행">' +
-      '<datalist id="journeyList">' + getMyJourneyNames().map(function(j) { return '<option value="' + j + '"></option>'; }).join('') + '</datalist>' +
+      '<datalist id="journeyList">' + getMyJourneyGroups().map(function(g) { return '<option value="' + g.name + '"></option>'; }).join('') + '</datalist>' +
       '</div>' +
       '<p id="placeHint"></p>' +
       '<button id="confirmRegisterBtn">등록하기</button>' +
@@ -775,13 +826,24 @@
 
   // 4. 모달
   function openModal(title, bodyHtml) {
+    document.getElementById('modal').classList.remove('peek');
+    document.getElementById('restoreModalBtn').style.display = 'none';
     document.getElementById('modalTitle').textContent = title;
     document.getElementById('modalBody').innerHTML = bodyHtml;
     document.getElementById('modal').classList.add('show');
   }
+  document.getElementById('minimizeBtn').addEventListener('click', function() {
+    document.getElementById('modal').classList.add('peek');
+    document.getElementById('restoreModalBtn').style.display = 'block';
+  });
+  document.getElementById('restoreModalBtn').addEventListener('click', function() {
+    document.getElementById('modal').classList.remove('peek');
+    document.getElementById('restoreModalBtn').style.display = 'none';
+  });
   document.getElementById('closeBtn').addEventListener('click', function() {
     document.getElementById('modal').classList.remove('show');
     document.getElementById('modalBody').innerHTML = '';
+    document.getElementById('restoreModalBtn').style.display = 'none';
     clearJourneyPolyline();
   });
 </script>
