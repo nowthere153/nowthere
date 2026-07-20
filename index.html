@@ -79,23 +79,36 @@
     color: white; font-weight: bold; cursor: pointer;
   }
 
+  /* 정보창(모달)은 더 이상 화면 전체를 어둡게 덮지 않고, 지도 위에 뜨는 카드 형태로 표시됩니다.
+     카드 바깥은 pointer-events:none이라 지도를 계속 조작(이동/확대/클릭)할 수 있고,
+     카드 자체(#modalContent)는 헤더를 드래그해서 원하는 위치로 옮길 수 있습니다. */
   #modal {
-    display: none; position: fixed; inset: 0; background: rgba(0,0,0,0.7);
-    z-index: 100; align-items: center; justify-content: center;
+    display: none; position: fixed; inset: 0; background: transparent;
+    z-index: 100; pointer-events: none;
   }
-  #modal.show { display: flex; }
+  #modal.show { display: block; }
   #modalContent {
-    background: white; border-radius: 12px; padding: 16px; max-width: 640px; width: 92%;
+    position: absolute; top: 96px; left: 50%; transform: translateX(-50%);
+    background: white; border-radius: 12px; padding: 14px 16px; max-width: 640px; width: 92%;
+    max-height: 72vh; overflow-y: auto; -webkit-overflow-scrolling: touch;
+    box-shadow: 0 6px 28px rgba(0,0,0,0.28);
+    pointer-events: auto;
   }
-  #modalContent h3 { margin-bottom: 10px; font-size: 16px; }
+  #modalContent.dragging { box-shadow: 0 10px 36px rgba(0,0,0,0.4); transition: none; }
+  #modalHeader {
+    display: flex; align-items: center; gap: 8px; cursor: move;
+    margin: -14px -16px 10px; padding: 10px 12px; border-radius: 12px 12px 0 0;
+    background: #fafafa; border-bottom: 1px solid #eee; user-select: none; touch-action: none;
+  }
+  #modalDragIcon { color: #aaa; font-size: 14px; line-height: 1; flex: 0 0 auto; }
+  #modalContent h3 { flex: 1; font-size: 16px; margin: 0; min-width: 0; overflow-wrap: break-word; }
   #closeBtn {
-    float: right; border: none; background: none; font-size: 20px; cursor: pointer;
+    flex: 0 0 auto; border: none; background: none; font-size: 20px; cursor: pointer;
   }
   #minimizeBtn {
-    float: right; border: none; background: #f2f2f2; border-radius: 8px; font-size: 15px;
-    cursor: pointer; padding: 4px 8px; margin-right: 8px;
+    flex: 0 0 auto; border: none; background: #f2f2f2; border-radius: 8px; font-size: 15px;
+    cursor: pointer; padding: 4px 8px;
   }
-  #modal.peek { background: transparent; pointer-events: none; }
   #modal.peek #modalContent { display: none; }
   #restoreModalBtn {
     display: none; position: fixed; bottom: 16px; left: 50%; transform: translateX(-50%);
@@ -133,9 +146,12 @@
 
 <div id="modal">
   <div id="modalContent">
-    <button id="minimizeBtn" title="지도만 보기">🗺️</button>
-    <button id="closeBtn">✕</button>
-    <h3 id="modalTitle"></h3>
+    <div id="modalHeader" title="드래그해서 정보창 위치를 옮길 수 있어요">
+      <span id="modalDragIcon">⠿</span>
+      <h3 id="modalTitle"></h3>
+      <button id="minimizeBtn" title="지도만 보기">🗺️</button>
+      <button id="closeBtn">✕</button>
+    </div>
     <div id="modalBody"></div>
   </div>
 </div>
@@ -826,6 +842,11 @@
 
   // 4. 모달
   function openModal(title, bodyHtml) {
+    var content = document.getElementById('modalContent');
+    // 새 정보창을 열 때마다 기본 위치(상단 중앙)로 되돌립니다. (이전에 드래그해 옮겨둔 위치는 초기화)
+    content.style.left = '';
+    content.style.top = '';
+    content.style.transform = '';
     document.getElementById('modal').classList.remove('peek');
     document.getElementById('restoreModalBtn').style.display = 'none';
     document.getElementById('modalTitle').textContent = title;
@@ -846,6 +867,65 @@
     document.getElementById('restoreModalBtn').style.display = 'none';
     clearJourneyPolyline();
   });
+
+  // 정보창 드래그 이동 기능 (접어두기 외 추가 기능)
+  // 헤더(⠿ 아이콘·제목 영역)를 마우스/터치로 잡고 끌면 정보창을 화면 어디로든 옮길 수 있습니다.
+  // 지도(경로)와 정보창(일정 목록)을 동시에 보고 싶을 때, 정보창을 경로가 가려지지 않는 자리로 옮겨두면 됩니다.
+  (function enableModalDrag() {
+    var content = document.getElementById('modalContent');
+    var handle = document.getElementById('modalHeader');
+    var dragging = false, offsetX = 0, offsetY = 0;
+
+    function startDrag(clientX, clientY) {
+      var rect = content.getBoundingClientRect();
+      dragging = true;
+      offsetX = clientX - rect.left;
+      offsetY = clientY - rect.top;
+      content.style.transform = 'none';
+      content.style.left = rect.left + 'px';
+      content.style.top = rect.top + 'px';
+      content.classList.add('dragging');
+    }
+    function moveDrag(clientX, clientY) {
+      if (!dragging) return;
+      var w = content.offsetWidth, h = content.offsetHeight;
+      var maxX = Math.max(0, window.innerWidth - w);
+      var maxY = Math.max(0, window.innerHeight - h);
+      var x = Math.min(Math.max(0, clientX - offsetX), maxX);
+      var y = Math.min(Math.max(0, clientY - offsetY), maxY);
+      content.style.left = x + 'px';
+      content.style.top = y + 'px';
+    }
+    function endDrag() {
+      dragging = false;
+      content.classList.remove('dragging');
+    }
+
+    handle.addEventListener('mousedown', function(e) {
+      if (e.target.closest('button')) return; // 버튼(닫기·접어두기) 클릭은 드래그로 처리하지 않음
+      startDrag(e.clientX, e.clientY);
+      e.preventDefault();
+    });
+    document.addEventListener('mousemove', function(e) {
+      if (!dragging) return;
+      moveDrag(e.clientX, e.clientY);
+      e.preventDefault();
+    });
+    document.addEventListener('mouseup', endDrag);
+
+    handle.addEventListener('touchstart', function(e) {
+      if (e.target.closest('button')) return;
+      var t = e.touches[0];
+      startDrag(t.clientX, t.clientY);
+    }, { passive: true });
+    document.addEventListener('touchmove', function(e) {
+      if (!dragging) return;
+      var t = e.touches[0];
+      moveDrag(t.clientX, t.clientY);
+    }, { passive: true });
+    document.addEventListener('touchend', endDrag);
+    document.addEventListener('touchcancel', endDrag);
+  })();
 </script>
 
 </body>
