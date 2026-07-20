@@ -1,0 +1,36 @@
+name: Firestore 자동 백업
+
+on:
+  schedule:
+    - cron: '17 18 * * *'   # 매일 UTC 18:17 (한국시간 새벽 3:17경 - 트래픽 적은 시간)
+  workflow_dispatch: {}      # Actions 탭에서 "Run workflow"로 수동 실행도 가능
+
+jobs:
+  backup:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: 저장소 체크아웃
+        uses: actions/checkout@v4
+
+      - name: Node.js 설정
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: firebase-admin 설치
+        run: npm install firebase-admin@12
+
+      - name: Firestore 백업 실행
+        env:
+          FIREBASE_SERVICE_ACCOUNT_KEY: ${{ secrets.FIREBASE_SERVICE_ACCOUNT_KEY }}
+        run: node scripts/backup-firestore.js
+
+      - name: 백업 파일 커밋
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add backups/
+          git diff --staged --quiet || git commit -m "chore: Firestore 자동 백업 $(date -u +'%Y-%m-%d')"
+          git push
