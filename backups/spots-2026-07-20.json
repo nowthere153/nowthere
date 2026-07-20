@@ -1,0 +1,62 @@
+{
+  "backedUpAt": "2026-07-20T14:24:07.407Z",
+  "count": 5,
+  "spots": [
+    {
+      "id": "E3sqRAWUfkUXnl3AkjeN",
+      "ownerId": "u_1784274478786_uxya377a",
+      "lat": 35.30348835054786,
+      "videoId": "gY8_Sd_2lh8",
+      "category": "nature",
+      "type": "youtube",
+      "lng": 127.74939499063105,
+      "name": "지리산 여행"
+    },
+    {
+      "id": "Q6SOrF0NIse4oBBPxcZ5",
+      "ownerId": "u_1784274478786_uxya377a",
+      "videoId": "qQUPtkrC_dk",
+      "type": "youtube",
+      "lat": 36.99349032848741,
+      "lng": 127.93590947127939,
+      "name": "강강유",
+      "reportCount": 1
+    },
+    {
+      "id": "UNtoRoxP6KACc42U6MmE",
+      "journey": "26년나의 지리산 여행",
+      "lat": 35.3072910635796,
+      "ownerId": "u_1784274478786_uxya377a",
+      "type": "youtube",
+      "name": "지리산 출발",
+      "lng": 127.75025470440659,
+      "videoId": "gY8_Sd_2lh8",
+      "category": "nature",
+      "createdAt": "2026-07-19T09:33:34.884Z"
+    },
+    {
+      "id": "fVN8izHRa75D6O0hn00a",
+      "type": "youtube",
+      "category": "nature",
+      "journey": "26년나의 지리산 여행",
+      "videoId": "gY8_Sd_2lh8",
+      "ownerId": "u_1784274478786_uxya377a",
+      "lng": 127.64287701383178,
+      "lat": 35.345120395050174,
+      "name": "지리산 자연휴양림",
+      "createdAt": "2026-07-19T09:35:53.858Z"
+    },
+    {
+      "id": "nNDvehRvvJJLqhpexJ45",
+      "lng": 127.62750910148776,
+      "videoId": "gY8_Sd_2lh8",
+      "journey": "26년나의지리산여행",
+      "lat": 35.37530721823292,
+      "category": "nature",
+      "ownerId": "u_1784274478786_uxya377a",
+      "name": "성주",
+      "type": "youtube",
+      "createdAt": "2026-07-19T09:36:58.464Z"
+    }
+  ]
+}
