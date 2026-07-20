@@ -4,6 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>거기비와 - 혼자 보기 아까운, 지금 그곳</title>
+<link rel="icon" type="image/svg+xml" href="data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCAyOCAzNiI+PGNsaXBQYXRoIGlkPSJjIj48cGF0aCBkPSJNMTQgMEM2LjMgMCAwIDYuMyAwIDE0YzAgMTAuNSAxNCAyMiAxNCAyMnMxNC0xMS41IDE0LTIyQzI4IDYuMyAyMS43IDAgMTQgMHoiLz48L2NsaXBQYXRoPjxnIGNsaXAtcGF0aD0idXJsKCNjKSI+PHJlY3Qgd2lkdGg9IjE0IiBoZWlnaHQ9IjM2IiBmaWxsPSIjZTExZDQ4Ii8+PHJlY3QgeD0iMTQiIHdpZHRoPSIxNCIgaGVpZ2h0PSIzNiIgZmlsbD0iIzI1NjNlYiIvPjwvZz48Y2lyY2xlIGN4PSIxNCIgY3k9IjE0IiByPSI2IiBmaWxsPSJ3aGl0ZSIvPjwvc3ZnPg==">
 <style>
   * { margin: 0; padding: 0; box-sizing: border-box; }
   body { font-family: -apple-system, "Apple SD Gothic Neo", sans-serif; }
@@ -28,7 +29,8 @@
     padding: 14px 16px 20px; color: white; box-sizing: border-box;
     pointer-events: none;
   }
-  #header .brand { font-size: 20px; font-weight: 800; letter-spacing: -0.5px; pointer-events: auto; display: inline-block; cursor: default; }
+  #header .brand { font-size: 20px; font-weight: 800; letter-spacing: -0.5px; pointer-events: auto; display: inline-flex; align-items: center; gap: 6px; cursor: default; }
+  #header .brand .brandIcon { width: 16px; height: 20px; flex: 0 0 auto; }
   #header .tagline { font-size: 12.5px; opacity: 0.9; margin-top: 2px; }
 
   #registerBtn {
@@ -125,7 +127,11 @@
 <body>
 
 <div id="header">
-  <div class="brand">🔴 거기비와</div>
+  <div class="brand"><svg class="brandIcon" viewBox="0 0 28 36" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+    <defs><clipPath id="pinClipBrand"><path d="M14 0C6.3 0 0 6.3 0 14c0 10.5 14 22 14 22s14-11.5 14-22C28 6.3 21.7 0 14 0z"/></clipPath></defs>
+    <g clip-path="url(#pinClipBrand)"><rect width="14" height="36" fill="#e11d48"/><rect x="14" width="14" height="36" fill="#2563eb"/></g>
+    <circle cx="14" cy="14" r="6" fill="white"/>
+  </svg>거기비와</div>
   <div class="tagline">혼자 보기 아까운, 지금 그곳의 모습</div>
 </div>
 
@@ -327,6 +333,42 @@
       '" frameborder="0" allowfullscreen></iframe>';
   }
 
+  // 핀별 고유 공유 링크 생성 (예: index.html?spot=abc123) — 매물 페이지 등에 붙여넣으면
+  // 접속 즉시 지도가 해당 스팟으로 이동하고 정보창이 자동으로 열립니다.
+  function getSpotShareUrl(spot) {
+    var base = location.origin + location.pathname;
+    return base + '?spot=' + encodeURIComponent(spot.id);
+  }
+
+  function fallbackCopy(text) {
+    var ta = document.createElement('textarea');
+    ta.value = text;
+    ta.style.position = 'fixed';
+    ta.style.opacity = '0';
+    document.body.appendChild(ta);
+    ta.focus();
+    ta.select();
+    try {
+      document.execCommand('copy');
+      showStatus('🔗 공유 링크가 복사되었습니다.');
+    } catch (e) {
+      showStatus('복사에 실패했습니다. 주소창에서 직접 복사해주세요: ' + text);
+    }
+    document.body.removeChild(ta);
+  }
+
+  function copyToClipboard(text) {
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+      navigator.clipboard.writeText(text).then(function() {
+        showStatus('🔗 공유 링크가 복사되었습니다. 매물 페이지 등에 붙여넣어보세요.');
+      }).catch(function() {
+        fallbackCopy(text);
+      });
+    } else {
+      fallbackCopy(text);
+    }
+  }
+
   // 스팟 클릭시 모달 열기 (타입에 따라 인스타그램이면 임베드 스크립트 재실행) + 권한별 삭제/신고 버튼
   function openSpotModal(spot) {
     var canDelete = isAdmin || (spot.ownerId && spot.ownerId === myOwnerId);
@@ -338,6 +380,9 @@
     if (spot.journey) {
       body += '<span style="display:inline-block;margin-bottom:8px;padding:4px 10px;border-radius:12px;background:#eef2ff;color:#4338ca;font-size:12px;">🧭 ' + spot.journey + '</span>';
     }
+    if (spot.category === 'view' && spot.id) {
+      body += '<p style="margin-bottom:8px;padding:8px 10px;border-radius:8px;background:#f0f9ff;color:#075985;font-size:12.5px;">🏙️ 조망 인증 링크 — 아래 "공유 링크 복사"를 눌러 매물 페이지 등에 붙여넣으면 이 뷰를 그대로 보여줄 수 있어요.</p>';
+    }
     body += buildEmbedHtml(spot);
     if (spot.journey) {
       body += '<button id="viewJourneyBtn" style="margin-top:10px;padding:8px 14px;border-radius:8px;border:1px solid #ddd;background:white;color:#4338ca;cursor:pointer;font-size:13px;">🧭 이 여정 전체보기</button>';
@@ -348,6 +393,9 @@
     }
 
     var btnRow = '<div style="margin-top:12px;display:flex;gap:8px;flex-wrap:wrap;">';
+    if (spot.id) {
+      btnRow += '<button id="shareSpotBtn" style="padding:8px 14px;border-radius:8px;border:1px solid #ddd;background:white;color:#2563eb;cursor:pointer;font-size:13px;">🔗 공유 링크 복사</button>';
+    }
     if (canDelete) {
       btnRow += '<button id="deleteSpotBtn" style="padding:8px 14px;border-radius:8px;border:1px solid #ddd;background:white;color:#888;cursor:pointer;font-size:13px;">🗑 이 스팟 삭제' + (isAdmin && spot.ownerId !== myOwnerId ? ' (관리자)' : '') + '</button>';
     }
@@ -367,6 +415,12 @@
         var key = (spot.ownerId || 'unknown') + '|' + normalizeJourney(spot.journey);
         var g = groups[key];
         if (g) openJourneyModal(g.name, g.spots);
+      });
+    }
+
+    if (spot.id) {
+      document.getElementById('shareSpotBtn').addEventListener('click', function() {
+        copyToClipboard(getSpotShareUrl(spot));
       });
     }
 
@@ -453,6 +507,35 @@
   var REPORT_HIDE_THRESHOLD = 3; // 이 값 이상 신고 누적시 일반 사용자에게는 숨김 (관리자는 계속 보임)
   var lastSnapshot = null;
 
+  // 공유 링크(?spot=아이디)로 접속한 경우, 데이터 로드 후 해당 스팟으로 자동 이동 + 정보창 오픈
+  function getUrlSpotId() {
+    try {
+      return new URLSearchParams(location.search).get('spot');
+    } catch (e) {
+      return null;
+    }
+  }
+  var pendingShareId = getUrlSpotId();
+  var pendingShareResolved = !pendingShareId;
+
+  function resolvePendingShareSpot() {
+    if (pendingShareResolved) return;
+    var target = sharedSpots.filter(function(s) { return s.id === pendingShareId; })[0];
+    pendingShareResolved = true;
+    if (target) {
+      map.setCenter(new kakao.maps.LatLng(target.lat, target.lng));
+      map.setLevel(3);
+      openSpotModal(target);
+      showStatus('🔗 공유된 스팟을 불러왔습니다: ' + target.name);
+    } else {
+      showStatus('⚠️ 공유된 스팟을 찾을 수 없습니다. (삭제되었거나 비공개 처리되었을 수 있습니다)');
+    }
+    // 주소창을 깔끔하게 정리 (뒤로가기/새로고침 시 재오픈 방지)
+    if (window.history && window.history.replaceState) {
+      window.history.replaceState(null, '', location.pathname);
+    }
+  }
+
   function renderSharedSpots(querySnapshot) {
     sharedMarkers.forEach(function(m) { m.setMap(null); });
     sharedMarkers = [];
@@ -481,6 +564,7 @@
 
     liveSpots = sampleSpots.concat(sharedSpots); // 거리 매칭 대상 갱신
     applyFilter(); // 새로 들어온 공유 스팟에도 현재 필터 상태 적용
+    resolvePendingShareSpot(); // 공유 링크로 접속했다면 첫 데이터 로드 시 자동으로 열기
   }
 
   db.collection('spots').onSnapshot(function(querySnapshot) {
