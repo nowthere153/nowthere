@@ -258,18 +258,114 @@
   };
   var map = new kakao.maps.Map(mapContainer, mapOption);
   var ps = new kakao.maps.services.Places();
+
+  // ================================================================
+  // 지도 엔진 어댑터 (ID 50 모듈화)
+  // 이 블록 아래의 나머지 코드는 kakao.maps.* 를 직접 호출하지 않고
+  // 아래 map으로 시작하는 함수들만 사용합니다. 나중에 다른 지도 엔진(예: 글로벌 SDK)으로
+  // 바꿀 때는 이 블록 안쪽 구현만 새로 갈아끼우면 되고, 이 블록을 호출하는 코드는
+  // 손댈 필요가 없습니다.
+  // ================================================================
+  function mapLatLng(lat, lng) { return new kakao.maps.LatLng(lat, lng); }
+
+  function mapSetCenter(lat, lng) { map.setCenter(mapLatLng(lat, lng)); }
+  function mapGetLevel() { return map.getLevel(); }
+  function mapSetLevel(level) { map.setLevel(level); }
+  function mapZoomIn() { map.setLevel(map.getLevel() - 1); }
+  function mapZoomOut() { map.setLevel(map.getLevel() + 1); }
+
+  function mapIsSkyView() { return map.getMapTypeId() === kakao.maps.MapTypeId.SKYVIEW; }
+  function mapSetSkyView(on) {
+    map.setMapTypeId(on ? kakao.maps.MapTypeId.SKYVIEW : kakao.maps.MapTypeId.ROADMAP);
+  }
+
+  // 핀 SVG 아이콘 생성 (color 파라미터로 빨강/파랑 구분) - 어댑터 내부에서만 사용
+  function pinImage(hexColor) {
+    var svg = '<svg xmlns="http://www.w3.org/2000/svg" width="28" height="36" viewBox="0 0 28 36">' +
+      '<path d="M14 0C6.3 0 0 6.3 0 14c0 10.5 14 22 14 22s14-11.5 14-22C28 6.3 21.7 0 14 0z" fill="' + hexColor + '"/>' +
+      '<circle cx="14" cy="14" r="6" fill="white"/></svg>';
+    return new kakao.maps.MarkerImage('data:image/svg+xml;base64,' + btoa(svg), new kakao.maps.Size(28, 36));
+  }
+  // opts.color: 'red'(유튜브 라이브=지금 이 순간) | 'blue'(인스타그램=그때 그 순간) | 생략(기본 회색 마커)
+  // opts.onClick: 마커 클릭시 실행할 함수(선택)
+  function mapCreateMarker(lat, lng, opts) {
+    opts = opts || {};
+    var markerOpts = { position: mapLatLng(lat, lng), map: map };
+    if (opts.color === 'red') markerOpts.image = pinImage('#e11d48');
+    if (opts.color === 'blue') markerOpts.image = pinImage('#2563eb');
+    var marker = new kakao.maps.Marker(markerOpts);
+    if (opts.onClick) kakao.maps.event.addListener(marker, 'click', opts.onClick);
+    return marker;
+  }
+  function mapRemoveMarker(marker) { if (marker) marker.setMap(null); }
+  // 마커를 지우지 않고 보이기/숨기기만 전환 (필터링 등에 사용)
+  function mapSetMarkerVisible(marker, visible) { if (marker) marker.setMap(visible ? map : null); }
+
+  // 현재 위치 표시 전용 파란 점 마커 (일반 스팟 핀과 다른 스타일)
+  function mapCreateLocationMarker(lat, lng) {
+    var svg = '<svg xmlns="http://www.w3.org/2000/svg" width="22" height="22"><circle cx="11" cy="11" r="8" fill="#3b82f6" stroke="white" stroke-width="3"/></svg>';
+    return new kakao.maps.Marker({
+      position: mapLatLng(lat, lng), map: map,
+      image: new kakao.maps.MarkerImage('data:image/svg+xml;base64,' + btoa(svg), new kakao.maps.Size(22, 22))
+    });
+  }
+
+  // pathArr: [{lat,lng}, ...] 형태의 평범한 배열
+  function mapDrawPolyline(pathArr) {
+    var path = pathArr.map(function(p) { return mapLatLng(p.lat, p.lng); });
+    var line = new kakao.maps.Polyline({
+      path: path, strokeWeight: 3, strokeColor: '#4338ca', strokeOpacity: 0.85, strokeStyle: 'shortdash'
+    });
+    line.setMap(map);
+    return line;
+  }
+  function mapRemovePolyline(line) { if (line) line.setMap(null); }
+
+  // pointsArr: [{lat,lng}, ...] 배열을 모두 포함하도록 지도 범위를 자동 조정
+  function mapFitBounds(pointsArr) {
+    var bounds = new kakao.maps.LatLngBounds();
+    pointsArr.forEach(function(p) { bounds.extend(mapLatLng(p.lat, p.lng)); });
+    map.setBounds(bounds);
+  }
+
+  // 지도 클릭 이벤트 - 콜백에는 카카오 전용 객체 대신 {lat, lng} 평범한 값만 전달
+  function mapOnClick(handler) {
+    kakao.maps.event.addListener(map, 'click', function(mouseEvent) {
+      handler({ lat: mouseEvent.latLng.getLat(), lng: mouseEvent.latLng.getLng() });
+    });
+  }
+
+  // 키워드로 장소 검색 - 카카오 응답 형식을 그대로 넘기지 않고 단순화된 형태로 콜백에 전달
+  function mapSearchPlace(keyword, callback) {
+    ps.keywordSearch(keyword, function(data, status) {
+      if (status === kakao.maps.services.Status.OK) {
+        var results = data.map(function(place) {
+          return { lat: parseFloat(place.y), lng: parseFloat(place.x), name: place.place_name, address: place.address_name };
+        });
+        callback({ ok: true, results: results });
+      } else if (status === kakao.maps.services.Status.ZERO_RESULT) {
+        callback({ ok: false, zeroResult: true });
+      } else {
+        callback({ ok: false, zeroResult: false });
+      }
+    });
+  }
+  // ================================================================
+  // 어댑터 끝 - 이 아래부터는 kakao.maps.*를 직접 쓰지 않습니다
+  // ================================================================
+
   // 카카오 기본 확대/축소 컨트롤·지도타입 컨트롤은 화면 크기에 따라 위치가 예측 불가능하게
   // 바뀌거나(모바일에서 아예 안 보이는 경우 포함) 상단 UI와 겹치는 문제가 있어, 둘 다 빼고
   // 직접 만든 버튼으로 대체해 위치와 노출을 완전히 통제한다
   document.getElementById('zoomInBtn').addEventListener('click', function() {
-    map.setLevel(map.getLevel() - 1);
+    mapZoomIn();
   });
   document.getElementById('zoomOutBtn').addEventListener('click', function() {
-    map.setLevel(map.getLevel() + 1);
+    mapZoomOut();
   });
   document.getElementById('mapTypeBtn').addEventListener('click', function() {
-    var isSky = map.getMapTypeId() === kakao.maps.MapTypeId.SKYVIEW;
-    map.setMapTypeId(isSky ? kakao.maps.MapTypeId.ROADMAP : kakao.maps.MapTypeId.SKYVIEW);
+    var isSky = mapIsSkyView();
+    mapSetSkyView(!isSky);
     document.getElementById('mapTypeBtn').textContent = isSky ? '🛰️ 스카이뷰' : '🗺️ 일반지도';
   });
 
@@ -304,7 +400,7 @@
   });
 
   function clearMarkers() {
-    markers.forEach(function(m){ m.setMap(null); });
+    markers.forEach(mapRemoveMarker);
     markers = [];
   }
 
@@ -351,18 +447,7 @@
     return { spot: nearest, distance: minDist };
   }
 
-  // 핀 SVG 아이콘 생성 (color 파라미터로 빨강/파랑 구분)
-  function pinImage(color) {
-    var svg = '<svg xmlns="http://www.w3.org/2000/svg" width="28" height="36" viewBox="0 0 28 36">' +
-      '<path d="M14 0C6.3 0 0 6.3 0 14c0 10.5 14 22 14 22s14-11.5 14-22C28 6.3 21.7 0 14 0z" fill="' + color + '"/>' +
-      '<circle cx="14" cy="14" r="6" fill="white"/></svg>';
-    return new kakao.maps.MarkerImage(
-      'data:image/svg+xml;base64,' + btoa(svg),
-      new kakao.maps.Size(28, 36)
-    );
-  }
-  function redMarkerImage() { return pinImage('#e11d48'); }   // 유튜브 라이브 = 지금 이 순간
-  function blueMarkerImage() { return pinImage('#2563eb'); }  // 인스타그램 릴스/게시물 = 그때 그 순간의 기록
+  // (핀 아이콘 생성은 지도 어댑터의 mapCreateMarker 안으로 이동 - ID 50)
 
   var CATEGORY_OPTIONS = [
     { key: 'nature', label: '풍경', emoji: '🌿' },
@@ -394,7 +479,7 @@
   function applyFilter() {
     sampleSpots.concat(sharedSpots).forEach(function(spot) {
       if (!spot.marker) return;
-      spot.marker.setMap(passesFilter(spot) ? map : null);
+      mapSetMarkerVisible(spot.marker, passesFilter(spot));
     });
   }
   // 카테고리별 등록 건수 배지 (ID 66) - 일반 사용자에게는 전체·카테고리 구분 없이 어떤 숫자도
@@ -551,7 +636,7 @@
           });
         } else {
           // 샘플(고정 데모) 데이터 → 로컬에서만 제거
-          if (spot.marker) spot.marker.setMap(null);
+          mapRemoveMarker(spot.marker);
           var idx = sampleSpots.indexOf(spot);
           if (idx > -1) sampleSpots.splice(idx, 1);
         }
@@ -605,13 +690,11 @@
   // 샘플 스팟들을 지도에 핀으로 항상 표시 (타입별 색상 구분)
   function addLiveSpotPins() {
     sampleSpots.forEach(function(spot) {
-      var pos = new kakao.maps.LatLng(spot.lat, spot.lng);
-      var img = spot.type === 'instagram' ? blueMarkerImage() : redMarkerImage();
-      var marker = new kakao.maps.Marker({ position: pos, map: map, image: img });
-      spot.marker = marker;
-      kakao.maps.event.addListener(marker, 'click', function() {
-        openSpotModal(spot);
+      var marker = mapCreateMarker(spot.lat, spot.lng, {
+        color: spot.type === 'instagram' ? 'blue' : 'red',
+        onClick: function() { openSpotModal(spot); }
       });
+      spot.marker = marker;
       markers.push(marker);
     });
   }
@@ -640,8 +723,8 @@
     var target = sharedSpots.filter(function(s) { return s.id === pendingShareId; })[0];
     pendingShareResolved = true;
     if (target) {
-      map.setCenter(new kakao.maps.LatLng(target.lat, target.lng));
-      map.setLevel(3);
+      mapSetCenter(target.lat, target.lng);
+      mapSetLevel(3);
       openSpotModal(target);
       showStatus('🔗 공유된 스팟을 불러왔습니다: ' + target.name);
     } else {
@@ -654,7 +737,7 @@
   }
 
   function renderSharedSpots(querySnapshot) {
-    sharedMarkers.forEach(function(m) { m.setMap(null); });
+    sharedMarkers.forEach(mapRemoveMarker);
     sharedMarkers = [];
     sharedSpots = [];
 
@@ -670,11 +753,11 @@
         journey: d.journey || null,
         createdAt: (d.createdAt && d.createdAt.toMillis) ? d.createdAt.toMillis() : 0
       };
-      var pos = new kakao.maps.LatLng(spot.lat, spot.lng);
-      var img = spot.type === 'instagram' ? blueMarkerImage() : redMarkerImage();
-      var marker = new kakao.maps.Marker({ position: pos, map: map, image: img });
+      var marker = mapCreateMarker(spot.lat, spot.lng, {
+        color: spot.type === 'instagram' ? 'blue' : 'red',
+        onClick: function() { openSpotModal(spot); }
+      });
       spot.marker = marker;
-      kakao.maps.event.addListener(marker, 'click', function() { openSpotModal(spot); });
       sharedMarkers.push(marker);
       sharedSpots.push(spot);
     });
@@ -736,16 +819,13 @@
 
   var journeyPolyline = null;
   function clearJourneyPolyline() {
-    if (journeyPolyline) { journeyPolyline.setMap(null); journeyPolyline = null; }
+    mapRemovePolyline(journeyPolyline);
+    journeyPolyline = null;
   }
   function drawJourneyPath(list) {
     clearJourneyPolyline();
     if (list.length < 2) return;
-    var path = list.map(function(s) { return new kakao.maps.LatLng(s.lat, s.lng); });
-    journeyPolyline = new kakao.maps.Polyline({
-      path: path, strokeWeight: 3, strokeColor: '#4338ca', strokeOpacity: 0.85, strokeStyle: 'shortdash'
-    });
-    journeyPolyline.setMap(map);
+    journeyPolyline = mapDrawPolyline(list.map(function(s) { return { lat: s.lat, lng: s.lng }; }));
   }
 
   // 등록시각 기준 상대적 일자 라벨 (예: "1일차 · 7/15") - 국내 근거리든 해외 원거리든 동일 로직
@@ -776,9 +856,7 @@
 
   function openJourneyModal(journeyName, spotsList) {
     if (spotsList.length > 0) {
-      var bounds = new kakao.maps.LatLngBounds();
-      spotsList.forEach(function(s) { bounds.extend(new kakao.maps.LatLng(s.lat, s.lng)); });
-      map.setBounds(bounds);
+      mapFitBounds(spotsList.map(function(s) { return { lat: s.lat, lng: s.lng }; }));
     }
     drawJourneyPath(spotsList);
 
@@ -821,54 +899,53 @@
     });
     if (nameMatch) {
       clearMarkers();
-      map.setCenter(new kakao.maps.LatLng(nameMatch.lat, nameMatch.lng));
-      map.setLevel(4);
+      mapSetCenter(nameMatch.lat, nameMatch.lng);
+      mapSetLevel(4);
       openSpotModal(nameMatch);
       showStatus('"' + keyword + '" 등록된 스팟을 찾았습니다!');
       return;
     }
 
-    ps.keywordSearch(keyword, function(data, status) {
-      if (status === kakao.maps.services.Status.OK) {
+    mapSearchPlace(keyword, function(res) {
+      if (res.ok) {
         clearMarkers();
-        var bounds = new kakao.maps.LatLngBounds();
+        var data = res.results;
 
         // 검색된 장소들 중 첫 번째(가장 관련성 높은 결과) 기준으로 최근접 라이브 스팟을 매칭
         var topPlace = data[0];
-        var lat = parseFloat(topPlace.y), lng = parseFloat(topPlace.x);
+        var lat = topPlace.lat, lng = topPlace.lng;
         var result = findNearestSpot(lat, lng);
 
         data.slice(0, 5).forEach(function(place, idx) {
-          var pos = new kakao.maps.LatLng(place.y, place.x);
           // 회색 마커: 검색 결과 자체 위치 (참고용)
-          var marker = new kakao.maps.Marker({ position: pos, map: map });
-          kakao.maps.event.addListener(marker, 'click', function() {
-            var d = getDistanceKm(place.y, place.x, result.spot.lat, result.spot.lng);
-            var body = '<p>주소: ' + place.address_name + '</p>';
-            if (d <= DISTANCE_THRESHOLD_KM) {
-              body += '<p style="margin-top:8px;">가장 가까운 스팟: <b>' + result.spot.name + '</b> (' + d.toFixed(1) + 'km)</p>' +
-                      '<button id="viewNearestBtn" style="margin-top:8px;padding:8px 14px;border-radius:8px;border:none;background:#e11d48;color:white;cursor:pointer;">이 스팟 보기</button>';
-            } else {
-              body += '<p style="color:#c2410c;font-size:13px;margin-top:8px;">⚠️ 반경 ' + DISTANCE_THRESHOLD_KM + 'km 내에 등록된 스팟이 없습니다. (가장 가까운 곳: ' + result.spot.name + ', ' + d.toFixed(1) + 'km — 참고용으로만 보세요)</p>';
-            }
-            openModal(place.place_name, body);
-            var viewBtn = document.getElementById('viewNearestBtn');
-            if (viewBtn) {
-              viewBtn.addEventListener('click', function() { openSpotModal(result.spot); });
+          var marker = mapCreateMarker(place.lat, place.lng, {
+            onClick: function() {
+              var d = getDistanceKm(place.lat, place.lng, result.spot.lat, result.spot.lng);
+              var body = '<p>주소: ' + place.address + '</p>';
+              if (d <= DISTANCE_THRESHOLD_KM) {
+                body += '<p style="margin-top:8px;">가장 가까운 스팟: <b>' + result.spot.name + '</b> (' + d.toFixed(1) + 'km)</p>' +
+                        '<button id="viewNearestBtn" style="margin-top:8px;padding:8px 14px;border-radius:8px;border:none;background:#e11d48;color:white;cursor:pointer;">이 스팟 보기</button>';
+              } else {
+                body += '<p style="color:#c2410c;font-size:13px;margin-top:8px;">⚠️ 반경 ' + DISTANCE_THRESHOLD_KM + 'km 내에 등록된 스팟이 없습니다. (가장 가까운 곳: ' + result.spot.name + ', ' + d.toFixed(1) + 'km — 참고용으로만 보세요)</p>';
+              }
+              openModal(place.name, body);
+              var viewBtn = document.getElementById('viewNearestBtn');
+              if (viewBtn) {
+                viewBtn.addEventListener('click', function() { openSpotModal(result.spot); });
+              }
             }
           });
           markers.push(marker);
-          bounds.extend(pos);
         });
 
-        map.setBounds(bounds);
+        mapFitBounds(data.slice(0, 5).map(function(p) { return { lat: p.lat, lng: p.lng }; }));
         var topDist = getDistanceKm(lat, lng, result.spot.lat, result.spot.lng);
         if (topDist <= DISTANCE_THRESHOLD_KM) {
           showStatus('"' + keyword + '" 근처 ' + topDist.toFixed(1) + 'km 지점에 라이브 스팟이 있습니다!');
         } else {
           showStatus('"' + keyword + '" 근처엔 등록된 라이브 스팟이 없습니다 (가장 가까운 곳 ' + topDist.toFixed(1) + 'km)');
         }
-      } else if (status === kakao.maps.services.Status.ZERO_RESULT) {
+      } else if (res.zeroResult) {
         showStatus('검색 결과가 없습니다.');
       } else {
         showStatus('검색 중 오류가 발생했습니다.');
@@ -992,9 +1069,9 @@
   document.getElementById('recentReportsBtn').addEventListener('click', renderRecentReports);
 
   // 등록모드일 때는 지도를 몇 번을 클릭(줌 조정 후 재클릭 포함)해도 항상 등록창이 뜸
-  kakao.maps.event.addListener(map, 'click', function(mouseEvent) {
+  mapOnClick(function(pos) {
     if (!placingMode) return;
-    pendingLatLng = mouseEvent.latLng;
+    pendingLatLng = pos; // {lat, lng}
     openRegisterForm();
   });
 
@@ -1006,18 +1083,12 @@
     }
     showStatus('📡 위치 확인 중...');
     navigator.geolocation.getCurrentPosition(function(pos) {
-      var here = new kakao.maps.LatLng(pos.coords.latitude, pos.coords.longitude);
-      map.setCenter(here);
-      map.setLevel(3);
+      var here = { lat: pos.coords.latitude, lng: pos.coords.longitude };
+      mapSetCenter(here.lat, here.lng);
+      mapSetLevel(3);
 
-      if (myLocationMarker) myLocationMarker.setMap(null);
-      myLocationMarker = new kakao.maps.Marker({
-        position: here, map: map,
-        image: new kakao.maps.MarkerImage(
-          'data:image/svg+xml;base64,' + btoa('<svg xmlns="http://www.w3.org/2000/svg" width="22" height="22"><circle cx="11" cy="11" r="8" fill="#3b82f6" stroke="white" stroke-width="3"/></svg>'),
-          new kakao.maps.Size(22, 22)
-        )
-      });
+      mapRemoveMarker(myLocationMarker);
+      myLocationMarker = mapCreateLocationMarker(here.lat, here.lng);
 
       if (placingMode) {
         pendingLatLng = here;
@@ -1099,7 +1170,7 @@
       if (!selectedCategory) { document.getElementById('placeHint').textContent = '어떤 콘텐츠인지 선택해주세요.'; return; }
       if (!info) { document.getElementById('placeHint').textContent = '유튜브(watch/live) 또는 인스타그램(reel/p) 링크만 지원합니다. 링크를 다시 확인해주세요.'; return; }
 
-      var newSpot = { name: title, lat: pendingLatLng.getLat(), lng: pendingLatLng.getLng(), type: info.type, ownerId: myOwnerId, category: selectedCategory };
+      var newSpot = { name: title, lat: pendingLatLng.lat, lng: pendingLatLng.lng, type: info.type, ownerId: myOwnerId, category: selectedCategory };
       var journeyInput = document.getElementById('regJourney').value.trim();
       if (journeyInput) newSpot.journey = journeyInput;
       newSpot.createdAt = firebase.firestore.FieldValue.serverTimestamp();
