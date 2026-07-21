@@ -304,6 +304,16 @@
     return found ? (found.emoji + ' ' + found.label) : '';
   }
 
+  // 등록 폼의 "묶음 이름" 입력란은 카테고리마다 의미가 달라서 문구를 다르게 보여줌
+  // (풍경=여러 장소를 잇는 여행 여정 / 조망=같은 건물·매물의 여러 뷰 / 우리가게=같은 가게의 여러 등록)
+  // 저장되는 데이터 필드(journey)와 묶어보기 로직은 카테고리에 상관없이 동일합니다.
+  var JOURNEY_FIELD_CONFIG = {
+    nature: { label: '여정 이름', hint: '(선택 — 여러 장소를 하나의 여행 여정으로 묶고 싶을 때)', placeholder: '예: 26년7월 지리산여행' },
+    view:   { label: '묶음 이름', hint: '(선택 — 같은 건물·매물의 다른 각도 뷰를 하나로 묶고 싶을 때)', placeholder: '예: 해운대 OO아파트 108동' },
+    shop:   { label: '가게 이름', hint: '(선택 — 같은 가게에서 등록한 여러 콘텐츠를 하나로 묶고 싶을 때)', placeholder: '예: OO카페 홍대점' }
+  };
+  var JOURNEY_FIELD_DEFAULT = { label: '기록 이름', hint: '(선택 — 여러 곳을 하나로 묶고 싶을 때)', placeholder: '예: 26년7월 지리산여행' };
+
   // 카테고리 필터: null이면 전체 표시
   var activeFilter = null;
   function passesFilter(spot) {
@@ -912,7 +922,7 @@
       '<div class="formRow"><label>어떤 콘텐츠인가요?</label><div id="catButtons" style="display:flex;gap:6px;flex-wrap:wrap;">' + catButtonsHtml + '</div></div>' +
       '<div class="formRow"><label>링크 (유튜브 라이브 또는 인스타그램 릴스/게시물)</label><input id="regUrl" type="text" placeholder="https://youtube.com/watch?v=... 또는 https://instagram.com/reel/..."></div>' +
       '<p id="quickReportHint" style="display:none;font-size:12px;color:#c2410c;margin:-4px 0 12px;">🚨 현장 제보는 장소 이름과 링크만 입력하면 바로 등록돼요. 등록 즉시 "🚨 최근 제보" 목록 맨 위에 최신순으로 노출됩니다.</p>' +
-      '<div class="formRow" id="journeyFormRow"><label>기록 이름 <span style="color:#999;font-weight:normal;">(선택 — 여러 곳을 하나의 여정으로 묶고 싶을 때)</span></label>' +
+      '<div class="formRow" id="journeyFormRow"><label><span id="journeyLabelMain">기록 이름</span> <span id="journeyLabelHint" style="color:#999;font-weight:normal;">(선택 — 여러 곳을 하나로 묶고 싶을 때)</span></label>' +
       '<input id="regJourney" type="text" list="journeyList" placeholder="예: 26년7월 지리산여행">' +
       '<datalist id="journeyList">' + getMyJourneyGroups().map(function(g) { return '<option value="' + g.name + '"></option>'; }).join('') + '</datalist>' +
       '</div>' +
@@ -939,6 +949,15 @@
         } else {
           if (journeyRow) journeyRow.style.display = '';
           if (quickHint) quickHint.style.display = 'none';
+
+          // 카테고리별로 "묶음 이름" 입력란의 라벨·설명·예시를 다르게 표시
+          var cfg = JOURNEY_FIELD_CONFIG[selectedCategory] || JOURNEY_FIELD_DEFAULT;
+          var labelMain = document.getElementById('journeyLabelMain');
+          var labelHint = document.getElementById('journeyLabelHint');
+          var journeyInput = document.getElementById('regJourney');
+          if (labelMain) labelMain.textContent = cfg.label;
+          if (labelHint) labelHint.textContent = cfg.hint;
+          if (journeyInput) journeyInput.placeholder = cfg.placeholder;
         }
       });
     });
