@@ -932,26 +932,64 @@
   });
 
   // 최근 현장(공익 제보) 목록 — 최신 등록순, 등록시각 강조 표시 (대관령 사례형 공익 제보 지원)
-  document.getElementById('recentReportsBtn').addEventListener('click', function() {
-    var sceneSpots = sharedSpots.filter(function(s) { return s.category === 'scene'; })
-      .sort(function(a, b) { return (b.createdAt || 0) - (a.createdAt || 0); });
-    if (sceneSpots.length === 0) {
-      openModal('🚨 최근 현장 제보', '<p style="color:#888;">아직 등록된 현장 제보가 없습니다.</p>');
-      return;
+  // 등록량이 늘어날수록 오래된 제보까지 계속 섞여 나와 "최근"이라는 의미가 흐려지는 문제가 있어,
+  // 일정 시간(RECENT_REPORTS_HOURS) 이내 등록된 것만 표시. 데이터가 느는 속도를 미리 예측하기
+  // 어려워 코드에 고정하지 않고 Firestore(config/settings)에 저장해 관리자가 직접 조정 가능하게 함
+  var RECENT_REPORTS_HOURS = 48; // Firestore에 설정값이 없을 때 쓰는 기본값
+  db.collection('config').doc('settings').get().then(function(doc) {
+    if (doc.exists && typeof doc.data().recentReportsHours === 'number') {
+      RECENT_REPORTS_HOURS = doc.data().recentReportsHours;
     }
-    var body = '<div style="display:flex;flex-direction:column;gap:8px;">' +
-      sceneSpots.map(function(s, idx) {
-        var ago = s.createdAt ? timeAgoLabel(s.createdAt) : '';
-        return '<button class="recentReportBtn" data-idx="' + idx + '" style="text-align:left;padding:10px 12px;border-radius:8px;border:1px solid #fecaca;background:#fff7f7;cursor:pointer;font-size:14px;">🚨 ' + s.name +
-          (ago ? '<br><span style="font-size:11px;color:#c2410c;">' + ago + ' 등록</span>' : '') + '</button>';
-      }).join('') + '</div>';
-    openModal('🚨 최근 현장 제보 (' + sceneSpots.length + '건)', body);
-    document.querySelectorAll('.recentReportBtn').forEach(function(btn) {
-      btn.addEventListener('click', function() {
-        openSpotModal(sceneSpots[parseInt(btn.getAttribute('data-idx'), 10)]);
+  }).catch(function(err) { console.error('최근 제보 기준 설정 로드 실패:', err); });
+
+  function renderRecentReports() {
+    var cutoff = Date.now() - RECENT_REPORTS_HOURS * 3600 * 1000;
+    var sceneSpots = sharedSpots.filter(function(s) {
+      return s.category === 'scene' && s.createdAt && s.createdAt >= cutoff;
+    }).sort(function(a, b) { return (b.createdAt || 0) - (a.createdAt || 0); });
+
+    // 관리자에게만 보이는 기준 조정 안내 - 일반 사용자는 조정 여부를 알 필요가 없어 숨김
+    var adminControl = isAdmin
+      ? '<div style="margin-bottom:10px;padding:8px 10px;background:#eef2ff;border-radius:8px;font-size:12px;color:#4338ca;display:flex;justify-content:space-between;align-items:center;gap:8px;">' +
+        '<span>표시 기준: 최근 ' + RECENT_REPORTS_HOURS + '시간 이내</span>' +
+        '<button id="recentReportsThresholdBtn" style="flex:0 0 auto;border:none;background:#4338ca;color:white;padding:5px 10px;border-radius:6px;font-size:11.5px;cursor:pointer;">기준 변경</button></div>'
+      : '';
+
+    if (sceneSpots.length === 0) {
+      openModal('🚨 최근 현장 제보', adminControl + '<p style="color:#888;">최근 ' + RECENT_REPORTS_HOURS + '시간 이내 등록된 현장 제보가 없습니다.</p>');
+    } else {
+      var body = adminControl + '<div style="display:flex;flex-direction:column;gap:8px;">' +
+        sceneSpots.map(function(s, idx) {
+          var ago = s.createdAt ? timeAgoLabel(s.createdAt) : '';
+          return '<button class="recentReportBtn" data-idx="' + idx + '" style="text-align:left;padding:10px 12px;border-radius:8px;border:1px solid #fecaca;background:#fff7f7;cursor:pointer;font-size:14px;">🚨 ' + s.name +
+            (ago ? '<br><span style="font-size:11px;color:#c2410c;">' + ago + ' 등록</span>' : '') + '</button>';
+        }).join('') + '</div>';
+      openModal('🚨 최근 현장 제보 (' + sceneSpots.length + '건)', body);
+      document.querySelectorAll('.recentReportBtn').forEach(function(btn) {
+        btn.addEventListener('click', function() {
+          openSpotModal(sceneSpots[parseInt(btn.getAttribute('data-idx'), 10)]);
+        });
       });
-    });
-  });
+    }
+
+    var thresholdBtn = document.getElementById('recentReportsThresholdBtn');
+    if (thresholdBtn) {
+      thresholdBtn.addEventListener('click', function() {
+        var val = prompt('현장 제보를 "최근"으로 표시할 기준 시간을 입력하세요 (시간 단위, 현재: ' + RECENT_REPORTS_HOURS + '시간)', RECENT_REPORTS_HOURS);
+        if (val === null) return;
+        var n = parseInt(val, 10);
+        if (isNaN(n) || n <= 0) { alert('1 이상의 숫자를 입력해주세요.'); return; }
+        RECENT_REPORTS_HOURS = n;
+        db.collection('config').doc('settings').set({ recentReportsHours: n }, { merge: true }).then(function() {
+          showStatus('✅ 최근 제보 기준이 ' + n + '시간으로 저장되었습니다.');
+          renderRecentReports();
+        }).catch(function(err) {
+          alert('저장 실패: ' + err.message);
+        });
+      });
+    }
+  }
+  document.getElementById('recentReportsBtn').addEventListener('click', renderRecentReports);
 
   // 등록모드일 때는 지도를 몇 번을 클릭(줌 조정 후 재클릭 포함)해도 항상 등록창이 뜸
   kakao.maps.event.addListener(map, 'click', function(mouseEvent) {
