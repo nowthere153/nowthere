@@ -1,0 +1,26 @@
+name: Firestore 복구 테스트 (수동 실행 전용)
+
+# 이 워크플로는 자동으로 실행되지 않습니다. Actions 탭에서 사람이 직접
+# "Run workflow"를 눌렀을 때만 실행됩니다 — 복구는 신중하게 다뤄야 하니까요.
+on:
+  workflow_dispatch: {}
+
+jobs:
+  restore-test:
+    runs-on: ubuntu-latest
+    steps:
+      - name: 저장소 체크아웃
+        uses: actions/checkout@v4
+
+      - name: Node.js 설정
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: firebase-admin 설치
+        run: npm install firebase-admin@12
+
+      - name: 복구 테스트 실행 (spots_restore_test 컬렉션으로)
+        env:
+          FIREBASE_SERVICE_ACCOUNT_KEY: ${{ secrets.FIREBASE_SERVICE_ACCOUNT_KEY }}
+        run: node scripts/restore-firestore.js
