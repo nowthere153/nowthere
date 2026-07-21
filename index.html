@@ -114,7 +114,8 @@
   @media (max-width: 480px) {
     #header .brand { font-size: 17px; }
     #header .tagline { font-size: 11px; }
-    #searchBox { top: 86px; width: 94%; gap: 6px; }
+    /* 우측 상단 버튼열(최근 제보 등)과 겹치지 않도록 가운데 정렬 대신 좌우 여백으로 폭을 계산 */
+    #searchBox { top: 86px; left: 12px; right: 122px; width: auto; transform: none; gap: 6px; }
     #searchInput { padding: 10px 14px; font-size: 14px; }
     #searchBtn { padding: 10px 14px; font-size: 13.5px; }
     #filterBar { top: 134px; width: 94%; }
