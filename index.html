@@ -47,6 +47,18 @@
     box-shadow: 0 2px 10px rgba(0,0,0,0.25);
   }
 
+  /* 카카오 기본 확대/축소 컨트롤 대신 직접 만든 버튼 - 기본 컨트롤이 상단 UI와 겹쳐서
+     현위치 버튼 위쪽에 같은 스타일로 쌓아 배치 (ID 65 후속 조정) */
+  #zoomInBtn, #zoomOutBtn {
+    position: absolute; right: 18px; z-index: 12;
+    width: 40px; height: 40px; border-radius: 50%; border: none;
+    background: white; font-size: 19px; font-weight: 700; color: #333; cursor: pointer;
+    box-shadow: 0 2px 10px rgba(0,0,0,0.2);
+    display: flex; align-items: center; justify-content: center;
+  }
+  #zoomInBtn { bottom: 190px; }
+  #zoomOutBtn { bottom: 142px; }
+
   #myJourneysBtn {
     position: absolute; top: 60px; right: 16px; z-index: 12;
     background: white; color: #4338ca; border: 1px solid #ddd; padding: 8px 12px;
@@ -82,6 +94,13 @@
     flex: 0 0 auto;
   }
   .filterChip.active { background: #111827; color: white; border-color: #111827; }
+  .chipCount {
+    display: inline-block; margin-left: 5px; padding: 1px 6px; border-radius: 10px;
+    background: rgba(0,0,0,0.08); color: #555; font-size: 10.5px; font-weight: 700;
+    vertical-align: middle;
+  }
+  .filterChip.active .chipCount { background: rgba(255,255,255,0.25); color: white; }
+  .adminChip { background: #eef2ff; border-color: #c7d2fe; color: #4338ca; }
 
   /* 좁은 화면(모바일)에서 상단 요소들이 서로 겹치지 않도록 크기·간격 축소 */
   @media (max-width: 480px) {
@@ -95,6 +114,9 @@
     #myJourneysBtn { top: 50px; right: 10px; font-size: 11.5px; padding: 7px 10px; }
     #recentReportsBtn { top: 90px; right: 10px; font-size: 11.5px; padding: 7px 10px; }
     #locateBtn { right: 10px; width: 40px; height: 40px; font-size: 17px; }
+    #zoomInBtn, #zoomOutBtn { right: 12px; width: 36px; height: 36px; font-size: 17px; }
+    #zoomInBtn { bottom: 178px; }
+    #zoomOutBtn { bottom: 134px; }
   }
 
   .formRow { margin-bottom: 12px; }
@@ -164,6 +186,8 @@
 <button id="myJourneysBtn">🧭 내 기록 목록</button>
 <button id="recentReportsBtn">🚨 최근 제보</button>
 <button id="locateBtn" title="현위치">🎯</button>
+<button id="zoomInBtn" title="확대">+</button>
+<button id="zoomOutBtn" title="축소">−</button>
 <div id="placingBanner">📍 지도를 클릭해서 위치를 지정해주세요 (확대·축소 후에도 다시 클릭하면 됩니다)</div>
 
 <div id="searchBox">
@@ -223,10 +247,16 @@
   };
   var map = new kakao.maps.Map(mapContainer, mapOption);
   var ps = new kakao.maps.services.Places();
-  // 확대/축소 컨트롤은 왼쪽 가장자리로 - 오른쪽은 상단 버튼(지금 여기 보여주기 등)이 이미 차지하고 있어 충돌 방지
-  map.addControl(new kakao.maps.ZoomControl(), kakao.maps.ControlPosition.LEFT);
+  // 카카오 기본 확대/축소 컨트롤은 위치(LEFT/RIGHT 등)와 무관하게 상단 UI와 겹치는 문제가 있어
+  // 제거하고, 아래 #zoomInBtn/#zoomOutBtn 커스텀 버튼으로 대체 (직접 위치를 통제)
   // 지도 타입 전환(일반지도/스카이뷰) 컨트롤 - ID 65, 좌측 하단(빈 공간)에 배치해 기존 버튼과 겹치지 않게 함
   map.addControl(new kakao.maps.MapTypeControl(), kakao.maps.ControlPosition.BOTTOMLEFT);
+  document.getElementById('zoomInBtn').addEventListener('click', function() {
+    map.setLevel(map.getLevel() - 1);
+  });
+  document.getElementById('zoomOutBtn').addEventListener('click', function() {
+    map.setLevel(map.getLevel() + 1);
+  });
 
   var markers = [];
 
@@ -352,19 +382,63 @@
       spot.marker.setMap(passesFilter(spot) ? map : null);
     });
   }
+  // 카테고리별 등록 건수 배지 - 칩 크기를 다르게 하는 대신, 활성도를 숫자로 보여줌 (ID 66)
+  // 다만 서비스 초기에는 건수가 적어 공개 노출 시 오히려 "비어 보이는" 역효과가 있어,
+  // 일반 사용자에게는 일정 건수(PUBLIC_COUNT_THRESHOLD) 이상 쌓인 카테고리만 배지를 보여주고,
+  // 관리자에게는 운영 확인용으로 항상 정확한 건수를 보여줌.
+  // 이 기준값은 코드에 고정하지 않고 Firestore(config/settings)에 저장해서 관리자가 직접 조정 가능
+  var PUBLIC_COUNT_THRESHOLD = 10; // Firestore에 설정값이 없을 때 쓰는 기본값
+  db.collection('config').doc('settings').get().then(function(doc) {
+    if (doc.exists && typeof doc.data().publicCountThreshold === 'number') {
+      PUBLIC_COUNT_THRESHOLD = doc.data().publicCountThreshold;
+      renderFilterBar();
+    }
+  }).catch(function(err) { console.error('공개 기준 설정 로드 실패:', err); });
+
+  function countByCategory(key) {
+    var all = sampleSpots.concat(sharedSpots);
+    if (!key) return all.length;
+    return all.filter(function(s) { return s.category === key; }).length;
+  }
+  function chipCountBadge(count) {
+    if (isAdmin) return '<span class="chipCount">' + count + '</span>';
+    if (count >= PUBLIC_COUNT_THRESHOLD) return '<span class="chipCount">' + count + '</span>';
+    return '';
+  }
   function renderFilterBar() {
-    var chips = '<button class="filterChip' + (activeFilter === null ? ' active' : '') + '" data-key="">전체</button>' +
+    var chips = '<button class="filterChip' + (activeFilter === null ? ' active' : '') + '" data-key="">전체' + chipCountBadge(countByCategory(null)) + '</button>' +
       CATEGORY_OPTIONS.map(function(c) {
-        return '<button class="filterChip' + (activeFilter === c.key ? ' active' : '') + '" data-key="' + c.key + '">' + c.emoji + ' ' + c.label + '</button>';
+        return '<button class="filterChip' + (activeFilter === c.key ? ' active' : '') + '" data-key="' + c.key + '">' + c.emoji + ' ' + c.label + chipCountBadge(countByCategory(c.key)) + '</button>';
       }).join('');
+    // 관리자에게만 보이는 "공개 기준 조정" 버튼을 필터바 맨 끝에 추가
+    if (isAdmin) {
+      chips += '<button id="adminThresholdBtn" class="filterChip adminChip" title="일반 사용자에게 등록건수를 공개하는 기준을 조정합니다">⚙️ 공개기준 ' + PUBLIC_COUNT_THRESHOLD + '건</button>';
+    }
     document.getElementById('filterBar').innerHTML = chips;
-    document.querySelectorAll('.filterChip').forEach(function(btn) {
+    // 카테고리 필터 칩(data-key 속성이 있는 것)에만 필터 전환 동작을 건다 - 관리자 설정 버튼은 제외
+    document.querySelectorAll('.filterChip[data-key]').forEach(function(btn) {
       btn.addEventListener('click', function() {
         activeFilter = btn.getAttribute('data-key') || null;
         renderFilterBar();
         applyFilter();
       });
     });
+    var thresholdBtn = document.getElementById('adminThresholdBtn');
+    if (thresholdBtn) {
+      thresholdBtn.addEventListener('click', function() {
+        var val = prompt('일반 사용자에게 카테고리 등록건수를 공개할 최소 기준을 입력하세요 (현재: ' + PUBLIC_COUNT_THRESHOLD + '건, 이 값 이상 쌓인 카테고리만 숫자가 보입니다)', PUBLIC_COUNT_THRESHOLD);
+        if (val === null) return;
+        var n = parseInt(val, 10);
+        if (isNaN(n) || n < 0) { alert('0 이상의 숫자를 입력해주세요.'); return; }
+        PUBLIC_COUNT_THRESHOLD = n;
+        db.collection('config').doc('settings').set({ publicCountThreshold: n }, { merge: true }).then(function() {
+          showStatus('✅ 공개 기준이 ' + n + '건으로 저장되었습니다.');
+          renderFilterBar();
+        }).catch(function(err) {
+          alert('저장 실패: ' + err.message);
+        });
+      });
+    }
   }
 
   // 콘텐츠 타입에 맞는 임베드 HTML 생성 (유튜브 iframe / 인스타그램 공식 블록쿼트)
@@ -625,6 +699,7 @@
 
     liveSpots = sampleSpots.concat(sharedSpots); // 거리 매칭 대상 갱신
     applyFilter(); // 새로 들어온 공유 스팟에도 현재 필터 상태 적용
+    renderFilterBar(); // 카테고리별 등록 건수 배지 갱신 (ID 66)
     resolvePendingShareSpot(); // 공유 링크로 접속했다면 첫 데이터 로드 시 자동으로 열기
   }
 
