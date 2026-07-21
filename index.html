@@ -206,6 +206,8 @@
   var map = new kakao.maps.Map(mapContainer, mapOption);
   var ps = new kakao.maps.services.Places();
   map.addControl(new kakao.maps.ZoomControl(), kakao.maps.ControlPosition.RIGHT);
+  // 지도 타입 전환(일반지도/스카이뷰) 컨트롤 - ID 65
+  map.addControl(new kakao.maps.MapTypeControl(), kakao.maps.ControlPosition.TOPRIGHT);
 
   var markers = [];
 
