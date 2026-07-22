@@ -68,6 +68,21 @@
     box-shadow: 0 2px 8px rgba(0,0,0,0.15);
   }
 
+  /* CCTV 연동 토글 - 관리자 설정(cctvEnabled)이 켜져 있거나 관리자 모드일 때만 노출 (ID 69) */
+  #cctvToggleBtn {
+    position: absolute; bottom: 60px; left: 16px; z-index: 12; display: none;
+    background: white; color: #7c3aed; border: 1px solid #ddd; padding: 8px 12px;
+    border-radius: 16px; font-size: 12.5px; font-weight: 600; cursor: pointer;
+    box-shadow: 0 2px 8px rgba(0,0,0,0.15);
+  }
+  /* 관리자 전용: 전체 사용자 공개 여부(cctvEnabled) 조정 */
+  #cctvAdminBtn {
+    position: absolute; bottom: 60px; left: 140px; z-index: 12; display: none;
+    background: white; color: #7c3aed; border: 1px solid #ddd; padding: 8px 10px;
+    border-radius: 16px; font-size: 12.5px; font-weight: 600; cursor: pointer;
+    box-shadow: 0 2px 8px rgba(0,0,0,0.15);
+  }
+
   #myJourneysBtn {
     position: absolute; top: 60px; right: 16px; z-index: 12;
     background: white; color: #4338ca; border: 1px solid #ddd; padding: 8px 12px;
@@ -127,6 +142,8 @@
     #zoomInBtn { bottom: 178px; }
     #zoomOutBtn { bottom: 134px; }
     #mapTypeBtn { left: 10px; bottom: 12px; font-size: 11.5px; padding: 7px 10px; }
+    #cctvToggleBtn { left: 10px; bottom: 56px; font-size: 11.5px; padding: 7px 10px; }
+    #cctvAdminBtn { left: 118px; bottom: 56px; font-size: 11.5px; padding: 7px 10px; }
   }
 
   .formRow { margin-bottom: 12px; }
@@ -199,6 +216,8 @@
 <button id="zoomInBtn" title="확대">+</button>
 <button id="zoomOutBtn" title="축소">−</button>
 <button id="mapTypeBtn">🛰️ 스카이뷰</button>
+<button id="cctvToggleBtn">📹 CCTV</button>
+<button id="cctvAdminBtn" title="CCTV 공개 설정 (관리자 전용)">⚙️</button>
 <div id="placingBanner">📍 지도를 클릭해서 위치를 지정해주세요 (확대·축소 후에도 다시 클릭하면 됩니다)</div>
 
 <div id="searchBox">
@@ -249,6 +268,54 @@
   var YOUTUBE_API_KEY = "AIzaSyCOKOrt2ZROSkM44YRoAVGc9cdr5o7LWt0";
 </script>
 
+<!-- ITS 국가교통정보센터 CCTV API (ID 7·34·69) -->
+<!-- ⚠️ 중요: 이 키는 지금 브라우저에서 직접 ITS를 호출하는 방식이라 사이트 소스코드에
+     그대로 노출됩니다. ITS는 공식 문서(요청변수/출력변수/에러메시지) 확인 결과 IP
+     화이트리스트가 없는 것으로 보여 IP 도용 문제는 없지만, 키 자체가 공개되므로 키를
+     복사해 남용하면 일일 호출한도가 소진되거나 키가 정지될 수 있습니다. 실서비스
+     정식 운영 전에는 ID34의 서버 프록시로 교체해 키를 감추는 것을 권장합니다
+     (아래 fetchCctvList 함수 내부만 바꾸면 되고, 호출하는 쪽 코드는 그대로 둬도 됩니다).
+     또한 CORS(브라우저 직접 호출 허용 여부)가 아직 실제로 검증되지 않았습니다 -
+     차단되어 있다면 이 함수는 항상 실패하고, 그 경우도 프록시로 교체가 필요합니다. -->
+<script>
+  var ITS_API_KEY = "ee2a7f2c8ccb42c9886f12e30335fca6";
+
+  // bounds: {minX, maxX, minY, maxY} (경도/위도 범위) / callback({ok, list, error})
+  // 응답을 표준 형태({ok, list})로 감싸서 넘기므로, 나중에 이 함수 내부를 프록시 호출로
+  // 바꾸더라도 호출하는 쪽(loadCctvMarkers 등)은 수정할 필요가 없습니다.
+  function fetchCctvList(bounds, callback) {
+    var url = new URL('https://openapi.its.go.kr:9443/cctvInfo');
+    url.searchParams.set('apiKey', ITS_API_KEY);
+    url.searchParams.set('type', 'all');     // 도로유형(문서 설명: ex=고속도로/its=국도, 공식샘플은 all 사용)
+    url.searchParams.set('cctvType', '1');   // 1=실시간 스트리밍(HLS)
+    url.searchParams.set('minX', bounds.minX);
+    url.searchParams.set('maxX', bounds.maxX);
+    url.searchParams.set('minY', bounds.minY);
+    url.searchParams.set('maxY', bounds.maxY);
+    url.searchParams.set('getType', 'json');
+
+    fetch(url.toString()).then(function(res) {
+      if (!res.ok) throw new Error('HTTP ' + res.status);
+      return res.json();
+    }).then(function(data) {
+      callback({ ok: true, list: extractCctvItems(data) });
+    }).catch(function(err) {
+      console.error('[CCTV] ITS 호출 실패 (CORS 차단이거나 키/형식 문제일 수 있음):', err);
+      callback({ ok: false, error: err });
+    });
+  }
+
+  // JSON 응답의 정확한 최상위 구조가 공식 문서에 XML 예시로만 나와 있어(getType=json일 때의
+  // 정확한 필드 배치는 미확인), 실제로 나올 수 있는 몇 가지 형태를 방어적으로 모두 시도합니다.
+  function extractCctvItems(data) {
+    if (!data) return [];
+    if (Array.isArray(data)) return data;
+    if (data.response && Array.isArray(data.response.data)) return data.response.data;
+    if (Array.isArray(data.data)) return data.data;
+    return [];
+  }
+</script>
+
 <script>
   // 1. 지도 초기화 (기본 중심: 서울)
   var mapContainer = document.getElementById('map');
@@ -279,6 +346,14 @@
     map.setMapTypeId(on ? kakao.maps.MapTypeId.SKYVIEW : kakao.maps.MapTypeId.ROADMAP);
   }
 
+  // 현재 지도 화면에 보이는 범위를 {minX,maxX,minY,maxY}(경도/위도)로 반환 - ITS/UTIC 같은
+  // bbox 기반 조회 API에 그대로 넘길 수 있는 형태 (ID 69)
+  function mapGetBounds() {
+    var b = map.getBounds();
+    var sw = b.getSouthWest(), ne = b.getNorthEast();
+    return { minX: sw.getLng(), maxX: ne.getLng(), minY: sw.getLat(), maxY: ne.getLat() };
+  }
+
   // 핀 SVG 아이콘 생성 (color 파라미터로 빨강/파랑 구분) - 어댑터 내부에서만 사용
   function pinImage(hexColor) {
     var svg = '<svg xmlns="http://www.w3.org/2000/svg" width="28" height="36" viewBox="0 0 28 36">' +
@@ -286,13 +361,15 @@
       '<circle cx="14" cy="14" r="6" fill="white"/></svg>';
     return new kakao.maps.MarkerImage('data:image/svg+xml;base64,' + btoa(svg), new kakao.maps.Size(28, 36));
   }
-  // opts.color: 'red'(유튜브 라이브=지금 이 순간) | 'blue'(인스타그램=그때 그 순간) | 생략(기본 회색 마커)
+  // opts.color: 'red'(유튜브 라이브=지금 이 순간) | 'blue'(인스타그램=그때 그 순간) |
+  //   'purple'(ITS/UTIC CCTV=기관 제공 실시간 영상, ID 69) | 생략(기본 회색 마커)
   // opts.onClick: 마커 클릭시 실행할 함수(선택)
   function mapCreateMarker(lat, lng, opts) {
     opts = opts || {};
     var markerOpts = { position: mapLatLng(lat, lng), map: map };
     if (opts.color === 'red') markerOpts.image = pinImage('#e11d48');
     if (opts.color === 'blue') markerOpts.image = pinImage('#2563eb');
+    if (opts.color === 'purple') markerOpts.image = pinImage('#7c3aed');
     var marker = new kakao.maps.Marker(markerOpts);
     if (opts.onClick) kakao.maps.event.addListener(marker, 'click', opts.onClick);
     return marker;
@@ -395,6 +472,7 @@
         isAdmin = true;
         showStatus('🔑 관리자 모드로 전환되었습니다.');
         if (lastSnapshot) renderSharedSpots(lastSnapshot); // 신고 누적으로 숨겨졌던 스팟도 즉시 표시
+        updateCctvButtonVisibility(); // 관리자는 공개설정과 무관하게 CCTV 버튼을 미리 볼 수 있음 (ID 69)
       }
     }
   });
@@ -1013,11 +1091,101 @@
   // 일정 시간(RECENT_REPORTS_HOURS) 이내 등록된 것만 표시. 데이터가 느는 속도를 미리 예측하기
   // 어려워 코드에 고정하지 않고 Firestore(config/settings)에 저장해 관리자가 직접 조정 가능하게 함
   var RECENT_REPORTS_HOURS = 48; // Firestore에 설정값이 없을 때 쓰는 기본값
+  // CCTV 연동 전체 공개 여부 - 관리자가 config/settings.cctvEnabled로 조정 (ID 69)
+  // 검증 전까지는 기본값 false로 두어 일반 사용자에게는 노출하지 않음
+  var CCTV_ENABLED = false;
   db.collection('config').doc('settings').get().then(function(doc) {
     if (doc.exists && typeof doc.data().recentReportsHours === 'number') {
       RECENT_REPORTS_HOURS = doc.data().recentReportsHours;
     }
-  }).catch(function(err) { console.error('최근 제보 기준 설정 로드 실패:', err); });
+    if (doc.exists && typeof doc.data().cctvEnabled === 'boolean') {
+      CCTV_ENABLED = doc.data().cctvEnabled;
+    }
+    updateCctvButtonVisibility();
+  }).catch(function(err) { console.error('설정 로드 실패:', err); });
+
+  // ================================================================
+  // CCTV 연동 (ID 69) - 관리자 온/오프 스위치 + 지도 표시
+  // ================================================================
+  var cctvMarkers = [];
+  var cctvVisible = false;
+
+  // 공개설정(CCTV_ENABLED)이 꺼져 있어도 관리자는 사전 검증을 위해 버튼을 계속 볼 수 있음
+  function updateCctvButtonVisibility() {
+    var toggleBtn = document.getElementById('cctvToggleBtn');
+    var adminBtn = document.getElementById('cctvAdminBtn');
+    if (toggleBtn) toggleBtn.style.display = (CCTV_ENABLED || isAdmin) ? 'block' : 'none';
+    if (adminBtn) adminBtn.style.display = isAdmin ? 'block' : 'none';
+  }
+
+  function clearCctvMarkers() {
+    cctvMarkers.forEach(mapRemoveMarker);
+    cctvMarkers = [];
+  }
+
+  function loadCctvMarkers() {
+    showStatus('📹 주변 CCTV 불러오는 중...');
+    fetchCctvList(mapGetBounds(), function(result) {
+      if (!result.ok) {
+        showStatus('⚠️ CCTV 정보를 불러오지 못했습니다. (' + (result.error && result.error.message ? result.error.message : '네트워크/CORS 오류로 추정') + ')');
+        return;
+      }
+      clearCctvMarkers();
+      result.list.forEach(function(item) {
+        var lat = parseFloat(item.coordy); // 출력변수 문서 기준 coordy=위도
+        var lng = parseFloat(item.coordx); // 출력변수 문서 기준 coordx=경도
+        if (isNaN(lat) || isNaN(lng)) return;
+        var name = item.cctvname || 'CCTV';
+        var streamUrl = item.cctvurl || '';
+        cctvMarkers.push(mapCreateMarker(lat, lng, {
+          color: 'purple',
+          onClick: function() {
+            var body = '<p style="margin:0 0 12px;">' + name + '</p>' +
+              (streamUrl
+                ? '<button id="cctvOpenStreamBtn" style="padding:8px 14px;border-radius:8px;border:none;background:#7c3aed;color:white;cursor:pointer;">🎥 영상 새 창에서 열기</button>'
+                : '<p style="color:#888;font-size:13px;">영상 주소를 받아오지 못했습니다.</p>');
+            openModal('📹 ' + name, body);
+            var openBtn = document.getElementById('cctvOpenStreamBtn');
+            if (openBtn) openBtn.addEventListener('click', function() { window.open(streamUrl, '_blank'); });
+          }
+        }));
+      });
+      showStatus('📹 CCTV ' + result.list.length + '개 표시됨');
+    });
+  }
+
+  document.getElementById('cctvToggleBtn').addEventListener('click', function() {
+    cctvVisible = !cctvVisible;
+    var btn = document.getElementById('cctvToggleBtn');
+    if (cctvVisible) {
+      btn.textContent = '📹 CCTV 끄기';
+      loadCctvMarkers();
+    } else {
+      btn.textContent = '📹 CCTV';
+      clearCctvMarkers();
+    }
+  });
+
+  // 관리자 전용: 전체 사용자에게 CCTV 기능을 공개할지(cctvEnabled) 조정
+  function renderCctvAdminModal() {
+    var body = '<p style="margin-bottom:14px;">현재 전체 사용자에게 CCTV 기능이 ' +
+      (CCTV_ENABLED ? '<b style="color:#0a7d2c;">켜져</b>' : '<b style="color:#c0392b;">꺼져</b>') + ' 있습니다.</p>' +
+      '<button id="cctvEnableToggleBtn" style="padding:10px 16px;border-radius:8px;border:none;background:' +
+      (CCTV_ENABLED ? '#c0392b' : '#0a7d2c') + ';color:white;cursor:pointer;">' +
+      (CCTV_ENABLED ? '전체 사용자 대상 끄기' : '전체 사용자 대상 켜기') + '</button>' +
+      '<p style="margin-top:12px;font-size:12px;color:#888;">관리자 화면에는 이 설정과 무관하게 항상 CCTV 버튼이 보입니다(사전 검증용).</p>';
+    openModal('⚙️ CCTV 공개 설정', body);
+    var t = document.getElementById('cctvEnableToggleBtn');
+    if (t) t.addEventListener('click', function() {
+      var newVal = !CCTV_ENABLED;
+      db.collection('config').doc('settings').set({ cctvEnabled: newVal }, { merge: true }).then(function() {
+        CCTV_ENABLED = newVal;
+        showStatus('✅ CCTV 공개 설정이 ' + (newVal ? 'ON' : 'OFF') + '으로 저장되었습니다.');
+        renderCctvAdminModal();
+      }).catch(function(err) { alert('저장 실패: ' + err.message); });
+    });
+  }
+  document.getElementById('cctvAdminBtn').addEventListener('click', renderCctvAdminModal);
 
   function renderRecentReports() {
     var cutoff = Date.now() - RECENT_REPORTS_HOURS * 3600 * 1000;
