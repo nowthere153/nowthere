@@ -492,6 +492,12 @@
     });
   }
 
+  // 지도 이동/확대·축소가 끝나고 멈췄을 때 호출 (드래그 중이 아니라 "정지한 시점"에 한 번만
+  // 호출됨) - CCTV처럼 "지금 보이는 범위"를 기준으로 다시 불러와야 하는 기능에 사용 (ID 69)
+  function mapOnIdle(handler) {
+    kakao.maps.event.addListener(map, 'idle', handler);
+  }
+
   // 키워드로 장소 검색 - 카카오 응답 형식을 그대로 넘기지 않고 단순화된 형태로 콜백에 전달
   function mapSearchPlace(keyword, callback) {
     ps.keywordSearch(keyword, function(data, status) {
@@ -1234,7 +1240,7 @@
               (popupBlocked
                 ? '<p style="color:#c0392b;font-size:12.5px;margin-bottom:10px;">새 창이 자동으로 안 열렸어요(브라우저 팝업 차단으로 추정). 아래 버튼을 눌러주세요.</p>'
                 : '<p style="color:#888;font-size:12.5px;margin-bottom:10px;">새 창에서 영상이 열렸습니다.</p>') +
-              '<button id="cctvOpenStreamBtn" style="padding:8px 14px;border-radius:8px;border:none;background:#7c3aed;color:white;cursor:pointer;">☔ 이곳 날씨 보기</button>';
+              '<button id="cctvOpenStreamBtn" style="padding:8px 14px;border-radius:8px;border:none;background:#7c3aed;color:white;cursor:pointer;">☔ 이곳 날씨도 확인</button>';
             openModal('☔ ' + name, body);
             var openBtn = document.getElementById('cctvOpenStreamBtn');
             if (openBtn) openBtn.addEventListener('click', function() { window.open(streamUrl, '_blank'); });
@@ -1255,6 +1261,14 @@
       btn.textContent = '📹 CCTV';
       clearCctvMarkers();
     }
+  });
+
+  // 지도를 축소/이동해도 CCTV가 처음 켰을 때 보이던 지역에만 그대로 남아있던 문제 수정:
+  // CCTV 레이어가 켜져 있는 동안은 지도 이동/확대·축소가 멈출 때마다 현재 보이는 범위로
+  // 다시 불러옵니다(30분 캐시가 있어서 같은 지역을 반복 조회해도 실제 호출은 새 지역에
+  // 대해서만 나갑니다).
+  mapOnIdle(function() {
+    if (cctvVisible) loadCctvMarkers();
   });
 
   // 관리자 전용: 전체 사용자에게 CCTV 기능을 공개할지(cctvEnabled) 조정
