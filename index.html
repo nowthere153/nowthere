@@ -280,22 +280,37 @@
 <script>
   var ITS_API_KEY = "ee2a7f2c8ccb42c9886f12e30335fca6";
 
-  // ITS는 개인 발급 키에 호출 한도가 있고("개인 제한량을 초과하였습니다" 에러로 실제 확인됨),
-  // 지금은 서버 프록시 없이 브라우저가 매번 직접 호출하는 임시 방식이라 캐시가 없으면
-  // CCTV 버튼을 누를 때마다(같은 화면을 다시 봐도) 매번 한도를 갉아먹습니다. 그래서
-  // 서버 프록시(traffic-proxy.js)와 동일한 방식으로 지역별 5분 캐시를 여기도 넣어둡니다.
-  var CCTV_CLIENT_CACHE_TTL_MS = 5 * 60 * 1000;
+  // ITS 개인키는 하루 호출 한도가 있습니다(실사용 테스트로 "개인 제한량을 초과하였습니다"
+  // 에러 확인 - 문의 결과 기본 1,000건/일, 필요시 기관에 증설 요청 가능한 것으로 확인됨).
+  // 한도를 아끼기 위해 두 가지를 함께 씁니다.
+  //   1) 지도 화면 그대로가 아니라 고정 격자(약 5km 단위)에 맞춰 살짝 넓혀서 조회 -
+  //      그래야 서로 다른 사용자가 같은 동네를 조금씩 다른 확대/위치로 봐도 같은 격자를
+  //      공유해서 캐시가 재사용됩니다(화면 그대로 캐시하면 사실상 거의 매번 미스가 남).
+  //   2) 30분 캐시 - CCTV "목록"(위치·주소)은 자주 안 바뀌는 정보라 이 정도 캐싱은
+  //      안전합니다(실시간으로 바뀌는 건 영상 내용이지 목록이 아님).
+  var CCTV_GRID_DEG = 0.05; // 약 5km 단위 고정 격자
+  var CCTV_CLIENT_CACHE_TTL_MS = 30 * 60 * 1000;
   var cctvClientCache = {};
-  function cctvCacheKey(bounds) {
-    var round = function(v) { return Math.round(parseFloat(v) * 100) / 100; };
-    return [round(bounds.minX), round(bounds.maxX), round(bounds.minY), round(bounds.maxY)].join(',');
+
+  function snapBoundsToGrid(bounds) {
+    var g = CCTV_GRID_DEG;
+    return {
+      minX: Math.floor(bounds.minX / g) * g,
+      maxX: Math.ceil(bounds.maxX / g) * g,
+      minY: Math.floor(bounds.minY / g) * g,
+      maxY: Math.ceil(bounds.maxY / g) * g
+    };
+  }
+  function cctvCacheKey(gridBounds) {
+    return [gridBounds.minX, gridBounds.maxX, gridBounds.minY, gridBounds.maxY].join(',');
   }
 
-  // bounds: {minX, maxX, minY, maxY} (경도/위도 범위) / callback({ok, list, error})
-  // 응답을 표준 형태({ok, list})로 감싸서 넘기므로, 나중에 이 함수 내부를 프록시 호출로
-  // 바꾸더라도 호출하는 쪽(loadCctvMarkers 등)은 수정할 필요가 없습니다.
+  // bounds: {minX, maxX, minY, maxY} (경도/위도 범위, 보통 mapGetBounds() 결과) /
+  // callback({ok, list, error}). 응답을 표준 형태({ok, list})로 감싸서 넘기므로, 나중에
+  // 이 함수 내부를 프록시 호출로 바꾸더라도 호출하는 쪽(loadCctvMarkers 등)은 그대로 둬도 됩니다.
   function fetchCctvList(bounds, callback) {
-    var key = cctvCacheKey(bounds);
+    var gridBounds = snapBoundsToGrid(bounds);
+    var key = cctvCacheKey(gridBounds);
     var hit = cctvClientCache[key];
     if (hit && Date.now() - hit.time < CCTV_CLIENT_CACHE_TTL_MS) {
       callback({ ok: true, list: hit.list });
@@ -306,10 +321,10 @@
     url.searchParams.set('apiKey', ITS_API_KEY);
     url.searchParams.set('type', 'all');     // 도로유형(문서 설명: ex=고속도로/its=국도, 공식샘플은 all 사용)
     url.searchParams.set('cctvType', '1');   // 1=실시간 스트리밍(HLS)
-    url.searchParams.set('minX', bounds.minX);
-    url.searchParams.set('maxX', bounds.maxX);
-    url.searchParams.set('minY', bounds.minY);
-    url.searchParams.set('maxY', bounds.maxY);
+    url.searchParams.set('minX', gridBounds.minX);
+    url.searchParams.set('maxX', gridBounds.maxX);
+    url.searchParams.set('minY', gridBounds.minY);
+    url.searchParams.set('maxY', gridBounds.maxY);
     url.searchParams.set('getType', 'json');
 
     fetch(url.toString()).then(function(res) {
