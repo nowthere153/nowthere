@@ -250,6 +250,11 @@
 <script src="//dapi.kakao.com/v2/maps/sdk.js?appkey=fe07520c037bcd001a849137e09baca6&libraries=services"></script>
 <script async src="//www.instagram.com/embed.js"></script>
 
+<!-- hls.js - CCTV 영상(HLS 스트림, .m3u8)을 정보창 안에 바로 재생하기 위해 사용 (ID 69 후속).
+     크롬/파이어폭스/엣지는 HLS를 기본 지원하지 않아 이 라이브러리가 필요하고, 사파리는
+     <video> 태그가 HLS를 자체 지원해서 이 라이브러리 없이도 재생 가능(코드에서 분기 처리). -->
+<script src="https://cdnjs.cloudflare.com/ajax/libs/hls.js/1.5.13/hls.min.js"></script>
+
 <!-- Firebase (Firestore) - 등록 데이터를 모두에게 공유하기 위한 저장소 -->
 <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore-compat.js"></script>
@@ -427,29 +432,49 @@
     return { minX: sw.getLng(), maxX: ne.getLng(), minY: sw.getLat(), maxY: ne.getLat() };
   }
 
-  // 핀 SVG 아이콘 생성 (color 파라미터로 빨강/파랑/보라 구분, glyph로 안쪽에 이모지 표시 가능)
-  // - 어댑터 내부에서만 사용. base64 대신 encodeURIComponent를 쓰는 이유: 이모지(☔ 등)는
-  //   btoa()가 처리 못 하는 유니코드 문자라 base64 인코딩이 그대로 깨짐(에러 발생) - 인코딩
-  //   방식을 바꿔서 어떤 글자가 들어와도 안전하게 처리되도록 함
-  function pinImage(hexColor, glyph) {
-    var inner = glyph
-      ? '<text x="14" y="14" font-size="12" text-anchor="middle" dominant-baseline="central">' + glyph + '</text>'
-      : '<circle cx="14" cy="14" r="6" fill="white"/>';
+  // 핀 SVG 아이콘 생성 (color 파라미터로 빨강/파랑 구분) - 어댑터 내부에서만 사용
+  function pinImage(hexColor) {
     var svg = '<svg xmlns="http://www.w3.org/2000/svg" width="28" height="36" viewBox="0 0 28 36">' +
       '<path d="M14 0C6.3 0 0 6.3 0 14c0 10.5 14 22 14 22s14-11.5 14-22C28 6.3 21.7 0 14 0z" fill="' + hexColor + '"/>' +
-      inner + '</svg>';
-    return new kakao.maps.MarkerImage('data:image/svg+xml;charset=utf-8,' + encodeURIComponent(svg), new kakao.maps.Size(28, 36));
+      '<circle cx="14" cy="14" r="6" fill="white"/></svg>';
+    return new kakao.maps.MarkerImage('data:image/svg+xml;base64,' + btoa(svg), new kakao.maps.Size(28, 36));
   }
+
+  // CCTV 전용 아이콘: 빨강/파랑과 같은 물방울(핀) 모양 대신, 흰 원형 배지 안에 우산+눈송이를
+  // 벡터로 직접 그려서 "교통"보다 "이 장소 날씨 확인"이라는 서비스 본질을 표현 (ID 69 후속
+  // 수정 - 처음엔 이모지(☔)를 핀 안에 넣었는데 렌더링이 안정적이지 않고 핀 모양 자체가
+  // 다른 마커와 너무 비슷해 보인다는 피드백으로, 이모지 대신 순수 SVG 도형으로 다시 그리고
+  // 모양도 물방울 핀이 아닌 원형 배지로 바꿈)
+  function weatherIconImage() {
+    var svg = '<svg xmlns="http://www.w3.org/2000/svg" width="30" height="30" viewBox="0 0 30 30">' +
+      '<circle cx="15" cy="15" r="14" fill="white" stroke="#7c3aed" stroke-width="1.5"/>' +
+      // 우산 캐노피(돔) + 물결모양 아랫단
+      '<path d="M6 16 A9 9 0 0 1 24 16 Z" fill="#7c3aed"/>' +
+      '<path d="M6 16 Q7.5 14 9 16 Q10.5 14 12 16 Q13.5 14 15 16 Q16.5 14 18 16 Q19.5 14 21 16 Q22.5 14 24 16 L24 17 L6 17 Z" fill="white"/>' +
+      // 손잡이
+      '<line x1="15" y1="16" x2="15" y2="23" stroke="#7c3aed" stroke-width="1.6" stroke-linecap="round"/>' +
+      '<path d="M15 23 q0 3 -3 3" fill="none" stroke="#7c3aed" stroke-width="1.6" stroke-linecap="round"/>' +
+      // 눈송이 (우산 위, 계절 무관하게 "날씨"라는 의미를 보태기 위한 보조 표시)
+      '<g stroke="#38bdf8" stroke-width="1.3" stroke-linecap="round">' +
+      '<line x1="15" y1="3" x2="15" y2="8"/>' +
+      '<line x1="12.5" y1="4.3" x2="17.5" y2="6.7"/>' +
+      '<line x1="17.5" y1="4.3" x2="12.5" y2="6.7"/>' +
+      '</g></svg>';
+    // encodeURIComponent 사용 이유: 위 SVG에 특수문자는 없지만, 앞으로 이모지 등 유니코드가
+    // 추가돼도 깨지지 않도록(btoa는 유니코드를 못 다룸) 안전한 인코딩 방식을 씀
+    return new kakao.maps.MarkerImage('data:image/svg+xml;charset=utf-8,' + encodeURIComponent(svg), new kakao.maps.Size(30, 30));
+  }
+
   // opts.color: 'red'(유튜브 라이브=지금 이 순간) | 'blue'(인스타그램=그때 그 순간) |
-  //   'purple'(ITS/UTIC CCTV=기관 제공 실시간 영상, ID 69 - ☔ 아이콘으로 "교통"보다 "이 장소
-  //   날씨/모습 확인"이라는 서비스 본질에 더 맞닿게 표현) | 생략(기본 회색 마커)
+  //   'purple'(ITS/UTIC CCTV=기관 제공 실시간 영상, ID 69 - 우산+눈송이 원형 배지 아이콘 사용)
+  //   | 생략(기본 회색 마커)
   // opts.onClick: 마커 클릭시 실행할 함수(선택)
   function mapCreateMarker(lat, lng, opts) {
     opts = opts || {};
     var markerOpts = { position: mapLatLng(lat, lng), map: map };
     if (opts.color === 'red') markerOpts.image = pinImage('#e11d48');
     if (opts.color === 'blue') markerOpts.image = pinImage('#2563eb');
-    if (opts.color === 'purple') markerOpts.image = pinImage('#7c3aed', '☔');
+    if (opts.color === 'purple') markerOpts.image = weatherIconImage();
     var marker = new kakao.maps.Marker(markerOpts);
     if (opts.onClick) kakao.maps.event.addListener(marker, 'click', opts.onClick);
     return marker;
@@ -1230,20 +1255,42 @@
               openModal('☔ ' + name, '<p style="color:#888;font-size:13px;">영상 주소를 받아오지 못했습니다.</p>');
               return;
             }
-            // 마커 클릭 이벤트 핸들러 안에서 곧바로 호출하므로("사용자 클릭"의 연장선) 대부분의
-            // 브라우저에서 팝업 차단 없이 바로 새 창이 열립니다 - 한 번 클릭으로 바로 뜨게 함.
-            // 다만 일부 브라우저(특히 모바일)는 이마저도 막을 수 있어, 실패 시를 대비해
-            // 안내 모달도 함께 띄워 수동으로 열 수 있는 버튼을 남겨둡니다.
-            var opened = window.open(streamUrl, '_blank');
-            var popupBlocked = !opened;
-            var body = '<p style="margin:0 0 12px;">' + name + '</p>' +
-              (popupBlocked
-                ? '<p style="color:#c0392b;font-size:12.5px;margin-bottom:10px;">새 창이 자동으로 안 열렸어요(브라우저 팝업 차단으로 추정). 아래 버튼을 눌러주세요.</p>'
-                : '<p style="color:#888;font-size:12.5px;margin-bottom:10px;">새 창에서 영상이 열렸습니다.</p>') +
-              '<button id="cctvOpenStreamBtn" style="padding:8px 14px;border-radius:8px;border:none;background:#7c3aed;color:white;cursor:pointer;">☔ 이곳 날씨도 확인</button>';
+            // 새 창을 여는 대신, 정보창(모달) 안에 사각 영상 박스로 바로 재생합니다.
+            // - 예전 방식(새 창 열기)은 팝업이 잠깐 보이다 브라우저가 원본 스트림 주소로
+            //   전체화면 전환해버려 화면 일부만 영상, 나머지는 검은 여백으로 보이는 문제가
+            //   있었습니다. 우리 페이지 안에서 직접 재생하면 이 문제가 없습니다.
+            var body = '<p style="margin:0 0 8px;font-weight:600;">☔ 이곳 날씨도 확인</p>' +
+              '<p style="margin:0 0 10px;color:#888;font-size:12.5px;">' + name + '</p>' +
+              '<video id="cctvVideoPlayer" controls autoplay muted playsinline ' +
+              'style="width:100%;max-width:480px;border-radius:8px;background:#000;display:block;"></video>' +
+              '<p id="cctvVideoFallback" style="display:none;margin-top:10px;font-size:12.5px;color:#c0392b;">' +
+              '영상을 바로 재생하지 못했습니다. <a href="' + streamUrl + '" target="_blank" style="color:#7c3aed;">새 창에서 열어보기</a></p>';
             openModal('☔ ' + name, body);
-            var openBtn = document.getElementById('cctvOpenStreamBtn');
-            if (openBtn) openBtn.addEventListener('click', function() { window.open(streamUrl, '_blank'); });
+
+            var video = document.getElementById('cctvVideoPlayer');
+            var fallback = document.getElementById('cctvVideoFallback');
+            function showFallback() { if (fallback) fallback.style.display = 'block'; }
+
+            if (window.Hls && Hls.isSupported()) {
+              var hls = new Hls();
+              currentCctvHls = hls;
+              hls.on(Hls.Events.ERROR, function(evt, data) {
+                if (data && data.fatal) showFallback();
+              });
+              hls.loadSource(streamUrl);
+              hls.attachMedia(video);
+            } else if (video.canPlayType('application/vnd.apple.mpegurl')) {
+              // 사파리는 HLS를 <video> 태그가 자체 지원 - hls.js 없이 바로 재생
+              video.src = streamUrl;
+            } else {
+              showFallback();
+            }
+            // 영상이 자연스럽게 끝나면(무한 라이브가 아니라 짧게 반복되는 영상일 경우)
+            // 정보창도 같이 닫히도록 함
+            video.addEventListener('ended', function() {
+              document.getElementById('closeBtn').click();
+            });
+            video.addEventListener('error', showFallback);
           }
         }));
       });
@@ -1468,7 +1515,15 @@
   }
 
   // 4. 모달
+  // CCTV 영상(hls.js)이 재생 중일 때 모달이 다른 내용으로 바뀌거나 닫히면 재생을 확실히
+  // 멈추기 위한 핸들 - 안 멈추면 화면엔 안 보여도 백그라운드에서 계속 스트림을 받습니다.
+  var currentCctvHls = null;
+  function stopCctvPlayback() {
+    if (currentCctvHls) { currentCctvHls.destroy(); currentCctvHls = null; }
+  }
+
   function openModal(title, bodyHtml) {
+    stopCctvPlayback();
     var content = document.getElementById('modalContent');
     // 새 정보창을 열 때마다 기본 위치(상단 중앙)로 되돌립니다. (이전에 드래그해 옮겨둔 위치는 초기화)
     content.style.left = '';
@@ -1489,6 +1544,7 @@
     document.getElementById('restoreModalBtn').style.display = 'none';
   });
   document.getElementById('closeBtn').addEventListener('click', function() {
+    stopCctvPlayback();
     document.getElementById('modal').classList.remove('show');
     document.getElementById('modalBody').innerHTML = '';
     document.getElementById('restoreModalBtn').style.display = 'none';
