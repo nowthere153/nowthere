@@ -280,10 +280,28 @@
 <script>
   var ITS_API_KEY = "ee2a7f2c8ccb42c9886f12e30335fca6";
 
+  // ITS는 개인 발급 키에 호출 한도가 있고("개인 제한량을 초과하였습니다" 에러로 실제 확인됨),
+  // 지금은 서버 프록시 없이 브라우저가 매번 직접 호출하는 임시 방식이라 캐시가 없으면
+  // CCTV 버튼을 누를 때마다(같은 화면을 다시 봐도) 매번 한도를 갉아먹습니다. 그래서
+  // 서버 프록시(traffic-proxy.js)와 동일한 방식으로 지역별 5분 캐시를 여기도 넣어둡니다.
+  var CCTV_CLIENT_CACHE_TTL_MS = 5 * 60 * 1000;
+  var cctvClientCache = {};
+  function cctvCacheKey(bounds) {
+    var round = function(v) { return Math.round(parseFloat(v) * 100) / 100; };
+    return [round(bounds.minX), round(bounds.maxX), round(bounds.minY), round(bounds.maxY)].join(',');
+  }
+
   // bounds: {minX, maxX, minY, maxY} (경도/위도 범위) / callback({ok, list, error})
   // 응답을 표준 형태({ok, list})로 감싸서 넘기므로, 나중에 이 함수 내부를 프록시 호출로
   // 바꾸더라도 호출하는 쪽(loadCctvMarkers 등)은 수정할 필요가 없습니다.
   function fetchCctvList(bounds, callback) {
+    var key = cctvCacheKey(bounds);
+    var hit = cctvClientCache[key];
+    if (hit && Date.now() - hit.time < CCTV_CLIENT_CACHE_TTL_MS) {
+      callback({ ok: true, list: hit.list });
+      return;
+    }
+
     var url = new URL('https://openapi.its.go.kr:9443/cctvInfo');
     url.searchParams.set('apiKey', ITS_API_KEY);
     url.searchParams.set('type', 'all');     // 도로유형(문서 설명: ex=고속도로/its=국도, 공식샘플은 all 사용)
@@ -305,7 +323,9 @@
       }
       return res.json();
     }).then(function(data) {
-      callback({ ok: true, list: extractCctvItems(data) });
+      var list = extractCctvItems(data);
+      cctvClientCache[key] = { list: list, time: Date.now() };
+      callback({ ok: true, list: list });
     }).catch(function(err) {
       console.error('[CCTV] ITS 호출 실패 (CORS 차단이거나 키/형식/승인 문제일 수 있음):', err);
       callback({ ok: false, error: err });
