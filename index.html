@@ -293,15 +293,12 @@
 <script>
   var ITS_API_KEY = "ee2a7f2c8ccb42c9886f12e30335fca6";
 
-  // CCTV 영상 중계 프록시(ID 74) 서버 주소 - 모바일에서 CCTV 영상이 불안정하게 재생되던
-  // 문제의 근본 원인(hls.js가 CORS에 막혀 페이지 안 재생을 못 하고, 브라우저가 원본
-  // 영상 주소를 그대로 여는 방식에 의존)을 해결하려면, 서버가 영상 조각파일까지 대신
-  // 받아와 중계해줘야 함(id34_traffic_proxy/scripts/hls-relay.js + server.js에 구현 완료).
-  // 아직 그 서버를 어디에도 호스팅하지 않아 지금은 빈 문자열로 둠 - 실제 서버 주소를
-  // 이 값에 넣으면, 아래 CCTV 클릭 핸들러가 자동으로 그 프록시를 거쳐 영상을 불러오도록
-  // 전환되어 페이지 안 재생이 안정적으로 동작함. 빈 문자열이면 지금처럼 원본 영상 주소를
-  // 직접 호출(가끔 불안정하지만 서버 비용 없음)하는 방식 그대로 유지됨.
-  var CCTV_PROXY_BASE_URL = ''; // 예: 'https://your-proxy-domain.com' (호스팅 정해지면 채움)
+  // CCTV 목록·영상 중계 프록시(ID 34·74) 서버 주소 - 국내 클라우드(가비아)에 배포 완료
+  // (2026-07). 이 값이 채워져 있으면 ①CCTV 목록 조회가 이 프록시를 거쳐서 오기 때문에
+  // 브라우저 소스에 ITS 인증키가 노출되지 않고, ②CCTV 영상도 이 프록시가 대신 받아와
+  // 중계해줘서 CORS 문제 없이 페이지 안에서 바로 안정적으로 재생됨. 빈 문자열로 두면
+  // 예전처럼 브라우저가 ITS를 직접 호출하는 방식(키 노출, 영상은 새 창 방식)으로 폴백됨.
+  var CCTV_PROXY_BASE_URL = 'https://api.nowthere.net';
 
   // ITS 개인키는 하루 호출 한도가 있습니다(실사용 테스트로 "개인 제한량을 초과하였습니다"
   // 에러 확인 - 문의 결과 기본 1,000건/일, 필요시 기관에 증설 요청 가능한 것으로 확인됨).
@@ -387,6 +384,28 @@
       return;
     }
 
+    if (CCTV_PROXY_BASE_URL) {
+      // 프록시(서버)가 배포되어 있으면 단일 호출로 끝남 - 서버(traffic-proxy.js)가
+      // ex/its 두 카테고리를 이미 합쳐서 돌려주기 때문에 브라우저에서 두 번 호출할
+      // 필요가 없고, ITS 인증키도 서버에만 있어 브라우저 소스에 노출되지 않음
+      var proxyUrl = CCTV_PROXY_BASE_URL + '/api/its-cctv?minX=' + gridBounds.minX +
+        '&maxX=' + gridBounds.maxX + '&minY=' + gridBounds.minY + '&maxY=' + gridBounds.maxY;
+      fetch(proxyUrl).then(function(res) {
+        if (!res.ok) throw new Error('HTTP ' + res.status);
+        return res.json();
+      }).then(function(data) {
+        var list = dedupeCctvItems(extractCctvItems(data));
+        cctvClientCache[key] = { list: list, time: Date.now() };
+        callback({ ok: true, list: list });
+      }).catch(function(err) {
+        console.error('[CCTV] 프록시 호출 실패:', err);
+        callback({ ok: false, error: err });
+      });
+      return;
+    }
+
+    // 프록시 주소가 비어있을 때의 폴백: 브라우저가 ITS를 직접 호출(키가 소스에 노출됨,
+    // ex/its 각각 호출한 뒤 합침) - 정상 운영 중에는 위 프록시 경로만 타야 함
     var exResult = null, itsResult = null;
     function tryFinish() {
       if (exResult === null || itsResult === null) return; // 둘 다 도착할 때까지 대기
