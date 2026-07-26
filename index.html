@@ -516,21 +516,38 @@
     // (btoa는 유니코드를 못 다룸) 안전한 인코딩 방식을 씀
     return 'data:image/svg+xml;charset=utf-8,' + encodeURIComponent(svg);
   }
-  function weatherIconImage() {
-    return new kakao.maps.MarkerImage(weatherIconSvgDataUrl(), new kakao.maps.Size(30, 30));
+  // size 생략시 기본 30px. SVG(벡터)라서 크기를 줄여도 화질 손상 없음 - 이걸 이용해
+  // 지도 확대 단계별로 아이콘 크기를 다르게 표시함(아래 weatherIconSizeForLevel 참고).
+  function weatherIconImage(size) {
+    size = size || 30;
+    return new kakao.maps.MarkerImage(weatherIconSvgDataUrl(), new kakao.maps.Size(size, size));
+  }
+
+  // ⚠️ 2026-07: 네이버는 CCTV 아이콘이 축소해도 도로 위에 "살짝" 표시되는 작은
+  // 크기를 유지하는데, 거기비와는 항상 30px 고정이라 전국 단위로 축소했을 때
+  // 아이콘이 네이버보다 2~3배 커 보인다는 피드백을 받음. 확대 단계(level, 작을수록
+  // 확대)에 따라 12~30px 사이에서 선형으로 크기를 줄여, 축소할수록 아이콘이 작고
+  // 수수하게, 확대할수록 원래 크기로 커지도록 함.
+  function weatherIconSizeForLevel(level) {
+    var minSize = 12, maxSize = 30;
+    var minLevel = 3, maxLevel = 14; // 이 범위 밖은 양끝 값으로 고정(clamp)
+    var t = (level - minLevel) / (maxLevel - minLevel);
+    t = Math.max(0, Math.min(1, t));
+    return Math.round(maxSize - t * (maxSize - minSize));
   }
 
   // opts.color: 'red'(유튜브 라이브=지금 이 순간) | 'blue'(인스타그램=그때 그 순간) |
   //   'purple'(ITS/UTIC CCTV=기관 제공 실시간 영상, ID 69 - 우산+눈송이 원형 배지 아이콘 사용)
   //   | 생략(기본 회색 마커)
   // opts.onClick: 마커 클릭시 실행할 함수(선택)
+  // opts.iconSize: 'purple' 아이콘의 표시 크기(px, 선택 - 생략시 30px)
   function mapCreateMarker(lat, lng, opts) {
     opts = opts || {};
     var markerOpts = { position: mapLatLng(lat, lng) };
     if (!opts.skipMap) markerOpts.map = map; // skipMap: 호출부에서 별도로 지도에 올릴 때 사용(현재 CCTV는 미사용)
     if (opts.color === 'red') markerOpts.image = pinImage('#e11d48');
     if (opts.color === 'blue') markerOpts.image = pinImage('#2563eb');
-    if (opts.color === 'purple') markerOpts.image = weatherIconImage();
+    if (opts.color === 'purple') markerOpts.image = weatherIconImage(opts.iconSize);
     var marker = new kakao.maps.Marker(markerOpts);
     if (opts.onClick) kakao.maps.event.addListener(marker, 'click', opts.onClick);
     return marker;
@@ -1299,8 +1316,12 @@
   // (level, 카카오맵 기준 숫자가 작을수록 확대)에 따라 달라져서, 축소할수록(level 큼)
   // 칸이 커져 소수만 고르게 보이고, 확대할수록(level 작음) 칸이 촘촘해져 개별 카메라가
   // 거의 다 보이게 됨 - 숫자 배지 없이 "아이콘 개수만" 스케일에 비례해서 변함.
+  // ⚠️ 2026-07 조정: 전국 단위로 축소했을 때 8개 정도만 남아 네이버(수십 개가 도로
+  // 격자점마다 고르게 표시됨)보다 훨씬 휑해 보인다는 피드백을 받아, 최소 칸 개수
+  // 하한선을 3→8로 올림(최소 8x8=64칸). 실제로는 CCTV가 도로를 따라서만 존재하니
+  // 64칸 중 실제 채워지는 칸은 도로망 분포에 따라 자연히 수십 개 정도로 나오게 됨.
   function decimateCctvList(list, bounds, level) {
-    var cellsPerAxis = Math.max(3, Math.min(16, 17 - level));
+    var cellsPerAxis = Math.max(8, Math.min(16, 20 - level));
     var lngSpan = Math.max(bounds.maxX - bounds.minX, 0.0001);
     var latSpan = Math.max(bounds.maxY - bounds.minY, 0.0001);
     var cellLng = lngSpan / cellsPerAxis;
@@ -1336,6 +1357,7 @@
       var bounds = mapGetBounds();
       var level = mapGetLevel();
       var shownList = decimateCctvList(result.list, bounds, level);
+      var iconSize = weatherIconSizeForLevel(level);
       shownList.forEach(function(item) {
         var lat = parseFloat(item.coordy); // 출력변수 문서 기준 coordy=위도
         var lng = parseFloat(item.coordx); // 출력변수 문서 기준 coordx=경도
@@ -1345,6 +1367,7 @@
         var imageUrl = item.imageUrl || '';
         cctvMarkers.push(mapCreateMarker(lat, lng, {
           color: 'purple',
+          iconSize: iconSize,
           onClick: function() {
             if (!imageUrl && !streamUrl) {
               showStatus('⚠️ ' + name + ' - 영상 정보를 받아오지 못했습니다.');
