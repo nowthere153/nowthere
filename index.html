@@ -252,7 +252,7 @@
 <button id="restoreModalBtn">🧭 목록 다시 보기</button>
 
 <!-- ⚠️ 아래 appkey는 발급받으신 JavaScript 키입니다 -->
-<script src="//dapi.kakao.com/v2/maps/sdk.js?appkey=fe07520c037bcd001a849137e09baca6&libraries=services"></script>
+<script src="//dapi.kakao.com/v2/maps/sdk.js?appkey=fe07520c037bcd001a849137e09baca6&libraries=services,clusterer"></script>
 <script async src="//www.instagram.com/embed.js"></script>
 
 <!-- hls.js - CCTV 영상(HLS 스트림, .m3u8)을 정보창 안에 바로 재생하기 위해 사용 (ID 69 후속).
@@ -483,37 +483,41 @@
   // 수정 - 처음엔 이모지(☔)를 핀 안에 넣었는데 렌더링이 안정적이지 않고 핀 모양 자체가
   // 다른 마커와 너무 비슷해 보인다는 피드백으로, 이모지 대신 순수 SVG 도형으로 다시 그리고
   // 모양도 물방울 핀이 아닌 원형 배지로 바꿈)
-  function weatherIconImage() {
-    // v4 (사용자 피드백 반영 - v3에서 방향이 반대로 반영됐던 것을 정정): 우산의 메인
-    // 형태는 다시 "우산살(뼈대)만 보이는" 얇은 선 형태로 되돌리고(v2에서 확정했던 방향
-    // 유지 - v3에서 실수로 꽉 찬 솔리드 돔으로 되돌아갔던 것을 수정), 눈은 v2의 큰
-    // 눈송이 글자 대신 v3에서 제안했던 "양념처럼" 작은 점 몇 개만 우산 주변에 흩뿌려
-    // 표현. 즉 v2(우산살 뼈대) + v3(작은 눈 점 산포)를 합친 형태.
+  // ⚠️ 2026-07: 지도 마커 아이콘(아래 SVG)과 정보창(모달)에 쓰던 "☔" 이모지가 서로 다른
+  // 그림이라 화면마다 아이콘이 달라 보인다는 지적이 있었음. 게다가 이모지는 PC·모바일·
+  // 브라우저마다 폰트가 달라 같은 문자(☔)인데도 실제로 다르게 그려짐(플랫폼별 이모지
+  // 폰트 차이 - 우리가 고칠 수 없는 부분). 그래서 이모지 대신 이 SVG 하나만 데이터
+  // URL로 만들어두고, 지도 마커와 정보창 아이콘 양쪽에서 완전히 같은 그림을 재사용함 -
+  // 이러면 어떤 기기에서 봐도 항상 똑같이 보임.
+  function weatherIconSvgDataUrl() {
+    // v5 (2026-07, 사용자 제공 참고 이미지 반영): 우산살 뼈대 + 눈 점 산포였던 v4가
+    // 작은 크기(지도 마커)에서 우산인지 눈인지 직관적으로 안 읽힌다는 지적을 받아,
+    // 꽉 찬 실루엣 우산 하나만 진하게 강조하는 형태로 다시 그림 - 참고 이미지처럼
+    // 남색 솔리드 우산 + 옅은 회색 원형 테두리, 눈 표시는 뺌(12px처럼 작아도 우산
+    // 모양이 분명히 인식되는 걸 우선함).
     var svg = '<svg xmlns="http://www.w3.org/2000/svg" width="30" height="30" viewBox="0 0 30 30">' +
-      '<circle cx="15" cy="15" r="14" fill="white" stroke="#7c3aed" stroke-width="1.5"/>' +
-      // 우산 - 살(뼈대)만 얇은 선으로: 꼭대기 한 점에서 아래 테두리 5곳으로 뻗음
-      '<g stroke="#7c3aed" stroke-width="1.4" stroke-linecap="round" fill="none">' +
-      '<path d="M15 15 L6.5 19"/>' +
-      '<path d="M15 15 L10.7 20.3"/>' +
-      '<path d="M15 15 L15 21"/>' +
-      '<path d="M15 15 L19.3 20.3"/>' +
-      '<path d="M15 15 L23.5 19"/>' +
-      '<path d="M6.5 19 Q10.7 21.3 15 21 Q19.3 21.3 23.5 19"/>' + // 살 끝을 잇는 테두리선
+      '<circle cx="15" cy="15" r="14" fill="white" stroke="#c7cbd1" stroke-width="1.3"/>' +
+      '<path d="M14.3 5.2 L15.7 5.2 L15.4 7.3 L14.6 7.3 Z" fill="#17335c"/>' + // 꼭대기 작은 촉
+      // 우산 캐노피 - 꽉 찬 실루엣(반원 돔 + 아래쪽 5칸 부채꼴 테두리)
+      '<path d="M6 18 C6 11.5, 10 7, 15 7 C20 7, 24 11.5, 24 18 ' +
+      'Q22.5 16, 21 18 Q19.5 16, 18 18 Q16.5 16, 15 18 Q13.5 16, 12 18 Q10.5 16, 9 18 Q7.5 16, 6 18 Z" ' +
+      'fill="#17335c"/>' +
+      // 캐노피 위 살대 구분선(옅게) - 부채꼴임을 은은하게 표현
+      '<g stroke="#3a5a8c" stroke-linecap="round">' +
+      '<line x1="15" y1="8" x2="15" y2="17" stroke-width="0.6"/>' +
+      '<line x1="10.5" y1="9.3" x2="12.5" y2="17.3" stroke-width="0.5"/>' +
+      '<line x1="19.5" y1="9.3" x2="17.5" y2="17.3" stroke-width="0.5"/>' +
       '</g>' +
-      // 손잡이 (우산살 꼭대기부터 아래로)
-      '<line x1="15" y1="15" x2="15" y2="24" stroke="#7c3aed" stroke-width="1.6" stroke-linecap="round"/>' +
-      '<path d="M15 24 q0 3 -3 3" fill="none" stroke="#7c3aed" stroke-width="1.6" stroke-linecap="round"/>' +
-      // 눈 - 우산살이 비어있어 생긴 위쪽 공간에 작은 점 몇 개만 "양념처럼" 소량 산포
-      '<g fill="#38bdf8">' +
-      '<circle cx="9" cy="7" r="1.3"/>' +
-      '<circle cx="21" cy="6.5" r="1.1"/>' +
-      '<circle cx="15" cy="4.5" r="1.2"/>' +
-      '<circle cx="6" cy="12" r="1"/>' +
-      '<circle cx="24" cy="12" r="1"/>' +
-      '</g></svg>';
+      // 손잡이
+      '<line x1="15" y1="17" x2="15" y2="23" stroke="#17335c" stroke-width="1.6" stroke-linecap="round"/>' +
+      '<path d="M15 23 q0 3 -3 3" fill="none" stroke="#17335c" stroke-width="1.6" stroke-linecap="round"/>' +
+      '</svg>';
     // encodeURIComponent 사용 이유: 이모지 등 유니코드가 들어가도 깨지지 않도록
     // (btoa는 유니코드를 못 다룸) 안전한 인코딩 방식을 씀
-    return new kakao.maps.MarkerImage('data:image/svg+xml;charset=utf-8,' + encodeURIComponent(svg), new kakao.maps.Size(30, 30));
+    return 'data:image/svg+xml;charset=utf-8,' + encodeURIComponent(svg);
+  }
+  function weatherIconImage() {
+    return new kakao.maps.MarkerImage(weatherIconSvgDataUrl(), new kakao.maps.Size(30, 30));
   }
 
   // opts.color: 'red'(유튜브 라이브=지금 이 순간) | 'blue'(인스타그램=그때 그 순간) |
@@ -522,7 +526,8 @@
   // opts.onClick: 마커 클릭시 실행할 함수(선택)
   function mapCreateMarker(lat, lng, opts) {
     opts = opts || {};
-    var markerOpts = { position: mapLatLng(lat, lng), map: map };
+    var markerOpts = { position: mapLatLng(lat, lng) };
+    if (!opts.skipMap) markerOpts.map = map; // skipMap: 클러스터러에 넘길 마커는 지도에 직접 올리지 않음
     if (opts.color === 'red') markerOpts.image = pinImage('#e11d48');
     if (opts.color === 'blue') markerOpts.image = pinImage('#2563eb');
     if (opts.color === 'purple') markerOpts.image = weatherIconImage();
@@ -1280,8 +1285,35 @@
     if (adminBtn) adminBtn.style.display = isAdmin ? 'block' : 'none';
   }
 
+  // ⚠️ 2026-07: 지금까지는 지도 화면(bounds)에 걸리는 CCTV를 확대·축소 단계와 무관하게
+  // 전부 마커로 찍어서, 도로 위에서는 아이콘이 줄지어 보이고 전국 단위로 축소하면
+  // 아이콘 무더기만 보이는 문제가 있었음(네이버는 축소할수록 주요 지점만 보이다가
+  // 확대하면 비율적으로 늘어남). 카카오맵 SDK 공식 클러스터러(MarkerClusterer)를 써서
+  // 같은 효과를 냄 - 마커가 서로 가까워 겹칠 정도로 축소되면 자동으로 숫자 배지 하나로
+  // 묶어 보여주고, 확대하면 자동으로 다시 개별 마커로 풀림. minLevel 값을 낮추면 더
+  // 낮은(=더 확대된) 단계에서부터 묶이고, 높이면 꽤 축소해야 묶임 - 실제 화면 보고
+  // 조정 필요.
+  var cctvClusterer = null;
+  function getCctvClusterer() {
+    if (!cctvClusterer) {
+      cctvClusterer = new kakao.maps.MarkerClusterer({
+        map: map,
+        averageCenter: true,
+        minLevel: 5,
+        disableClickZoom: false,
+        styles: [{
+          width: '38px', height: '38px', background: 'rgba(124,58,237,0.85)',
+          borderRadius: '19px', color: '#fff', textAlign: 'center',
+          lineHeight: '38px', fontWeight: 'bold', fontSize: '13px'
+        }]
+      });
+    }
+    return cctvClusterer;
+  }
+
   function clearCctvMarkers() {
-    cctvMarkers.forEach(mapRemoveMarker);
+    if (cctvClusterer) cctvClusterer.clear();
+    cctvMarkers.forEach(mapRemoveMarker); // 클러스터러 생성 전에 찍혔을 수 있는 마커 방어적 정리
     cctvMarkers = [];
   }
 
@@ -1302,6 +1334,7 @@
         var imageUrl = item.imageUrl || '';
         cctvMarkers.push(mapCreateMarker(lat, lng, {
           color: 'purple',
+          skipMap: true, // 클러스터러가 지도에 올리는 걸 담당 - 여기서 바로 올리지 않음
           onClick: function() {
             if (!imageUrl && !streamUrl) {
               showStatus('⚠️ ' + name + ' - 영상 정보를 받아오지 못했습니다.');
@@ -1317,8 +1350,11 @@
             // 검은 화면 없이 즉시 표시됨), 실시간 영상은 원하는 사람만 보는 보조 옵션으로
             // 새 창 링크로 남겨둠.
             if (imageUrl) {
-              var body = '<p style="margin:0 0 8px;font-weight:600;">☔ 이곳 날씨도 확인</p>' +
-                '<p style="margin:0 0 10px;color:#888;font-size:12.5px;">' + name + '</p>' +
+              // 위치 이름이 제목표시줄과 본문에 중복 표시되던 것을 정리 - 제목표시줄은
+              // "이곳 날씨도 확인"(공통 안내)+아이콘을 담당하고, 위치 이름은 본문에 한
+              // 번만 표시. 아이콘도 이모지(☔) 대신 지도 마커와 같은 SVG 이미지를 써서
+              // 기기마다 다르게 보이던 문제를 없앰(weatherIconSvgDataUrl 참고).
+              var body = '<p style="margin:0 0 10px;color:#888;font-size:12.5px;">' + name + '</p>' +
                 '<img id="cctvSnapshotImg" style="width:100%;max-width:480px;aspect-ratio:4/3;' +
                 'object-fit:cover;border-radius:8px;background:#eee;display:block;" />' +
                 '<p id="cctvSnapshotErr" style="display:none;margin-top:8px;font-size:12.5px;color:#c0392b;">' +
@@ -1326,7 +1362,7 @@
                 '<p style="margin:8px 0 0;font-size:11.5px;color:#aaa;">약 20초마다 자동으로 새로고침됩니다' +
                 (streamUrl ? ' · <a href="' + streamUrl + '" target="_blank" style="color:#7c3aed;">실시간 영상으로 보기(새 창)</a>' : '') +
                 '</p>';
-              openModal('☔ ' + name, body);
+              openModal('이곳 날씨도 확인', body, weatherIconSvgDataUrl());
               var img = document.getElementById('cctvSnapshotImg');
               var errMsg = document.getElementById('cctvSnapshotErr');
               img.onerror = function() {
@@ -1349,6 +1385,7 @@
           }
         }));
       });
+      getCctvClusterer().addMarkers(cctvMarkers);
       showStatus('📹 CCTV ' + result.list.length + '개 표시됨');
     });
   }
@@ -1579,7 +1616,11 @@
     if (cctvImageRefreshTimer) { clearInterval(cctvImageRefreshTimer); cctvImageRefreshTimer = null; }
   }
 
-  function openModal(title, bodyHtml) {
+  // iconDataUrl(선택): 제목 앞에 붙일 아이콘 이미지 주소(data: URL). 이모지 문자 대신
+  // 이미지를 쓰는 이유는 위 weatherIconSvgDataUrl() 설명 참고 - 기기마다 다르게 보이는
+  // 문제를 없애기 위함. title은 항상 텍스트로만 넣음(장소 이름 등 외부/사용자 유래
+  // 문자열이 섞일 수 있어 HTML로 해석하지 않고 안전하게 처리 - innerHTML 주입 방지).
+  function openModal(title, bodyHtml, iconDataUrl) {
     stopCctvPlayback();
     var content = document.getElementById('modalContent');
     // 새 정보창을 열 때마다 기본 위치(상단 중앙)로 되돌립니다. (이전에 드래그해 옮겨둔 위치는 초기화)
@@ -1588,7 +1629,16 @@
     content.style.transform = '';
     document.getElementById('modal').classList.remove('peek');
     document.getElementById('restoreModalBtn').style.display = 'none';
-    document.getElementById('modalTitle').textContent = title;
+    var titleEl = document.getElementById('modalTitle');
+    titleEl.innerHTML = ''; // 아이콘 유무와 무관하게 항상 비우고 다시 구성
+    if (iconDataUrl) {
+      var iconImg = document.createElement('img');
+      iconImg.src = iconDataUrl;
+      iconImg.alt = '';
+      iconImg.style.cssText = 'width:18px;height:18px;vertical-align:-4px;margin-right:5px;';
+      titleEl.appendChild(iconImg);
+    }
+    titleEl.appendChild(document.createTextNode(title)); // textNode라 title에 어떤 문자가 와도 HTML로 해석되지 않음
     document.getElementById('modalBody').innerHTML = bodyHtml;
     document.getElementById('modal').classList.add('show');
   }
