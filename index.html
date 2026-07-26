@@ -1299,29 +1299,53 @@
         if (isNaN(lat) || isNaN(lng)) return;
         var name = item.cctvname || 'CCTV';
         var streamUrl = item.cctvurl || '';
+        var imageUrl = item.imageUrl || '';
         cctvMarkers.push(mapCreateMarker(lat, lng, {
           color: 'purple',
           onClick: function() {
-            if (!streamUrl) {
-              openModal('☔ ' + name, '<p style="color:#888;font-size:13px;">영상 주소를 받아오지 못했습니다.</p>');
+            if (!imageUrl && !streamUrl) {
+              showStatus('⚠️ ' + name + ' - 영상 정보를 받아오지 못했습니다.');
               return;
             }
-            // ⚠️ 2026-07 진단 결과: 페이지 안(hls.js)에서 재생을 시도하는 방식은 두 경로
-            // 모두 확인해봤지만 성립하지 않음 - ①서버가 대신 받아오는 중계 방식은
-            // cctvsec.ktict.co.kr이 우리 서버 IP(데이터센터/호스팅 IP)를 자체적으로 차단해
-            // HTTP 400으로 항상 실패(Node fetch·curl 모두 동일하게 확인), ②브라우저가
-            // 직접 요청하는 방식도 실제 배포 후 테스트 결과 CORS로 추정되는 이유로 여전히
-            // 빠르게 실패함(팝업 안에서 재생 시도 → 새 창 전환까지의 지연이 사라진 것이
-            // 오히려 "재시도 없이 즉시 실패"로 바뀌었다는 신호). 두 경로 모두 막혀있다는
-            // 뜻이라, 팝업 안에서 재생을 시도하는 단계 자체를 없애고 클릭 즉시 깔끔하게
-            // 새 창으로 엶 - 회전 스피너나 "재생하지 못했습니다" 같은 중간 실패 문구 없이
-            // 바로 넘어가도록 해서 혼란을 줄임.
-            var body = '<p style="margin:0 0 8px;font-weight:600;">☔ 이곳 날씨도 확인</p>' +
-              '<p style="margin:0 0 10px;color:#888;font-size:12.5px;">' + name + '</p>' +
-              '<p style="margin:0;font-size:13px;color:#555;">CCTV 영상이 새 창에서 열립니다. ' +
-              '창이 안 열렸다면(팝업 차단 등) - <a href="' + streamUrl + '" target="_blank" style="color:#7c3aed;">여기를 눌러 열기</a></p>';
-            openModal('☔ ' + name, body);
-            window.open(streamUrl, '_blank');
+            // ⚠️ 2026-07: 실시간 스트리밍(hls.js, 새 창 모두)은 cctvsec.ktict.co.kr이
+            // 우리 서버(데이터센터 IP)와 브라우저 직접요청(CORS로 추정) 양쪽 다 막아서
+            // 페이지 안 재생이 사실상 불가능함을 확인함. 반면 이 기능의 실제 목적("그
+            // 위치에 지금 비/눈이 오는지 확인")에는 정지영상(사진) 한 장으로 충분하고,
+            // ITS의 cctvType=3(정지영상) 주소는 세션 토큰 없는 단순 파일이라 우리 서버·
+            // 브라우저 모두 문제없이 받아짐이 실제 테스트로 확인됨. 그래서 사진을 기본으로
+            // 페이지 안에 바로 보여주고(스트리밍처럼 CORS/차단 문제가 없어 로딩 지연·
+            // 검은 화면 없이 즉시 표시됨), 실시간 영상은 원하는 사람만 보는 보조 옵션으로
+            // 새 창 링크로 남겨둠.
+            if (imageUrl) {
+              var body = '<p style="margin:0 0 8px;font-weight:600;">☔ 이곳 날씨도 확인</p>' +
+                '<p style="margin:0 0 10px;color:#888;font-size:12.5px;">' + name + '</p>' +
+                '<img id="cctvSnapshotImg" style="width:100%;max-width:480px;aspect-ratio:4/3;' +
+                'object-fit:cover;border-radius:8px;background:#eee;display:block;" />' +
+                '<p id="cctvSnapshotErr" style="display:none;margin-top:8px;font-size:12.5px;color:#c0392b;">' +
+                '사진을 불러오지 못했습니다' + (streamUrl ? ' - 실시간 영상으로 대신 확인해보세요.' : '.') + '</p>' +
+                '<p style="margin:8px 0 0;font-size:11.5px;color:#aaa;">약 20초마다 자동으로 새로고침됩니다' +
+                (streamUrl ? ' · <a href="' + streamUrl + '" target="_blank" style="color:#7c3aed;">실시간 영상으로 보기(새 창)</a>' : '') +
+                '</p>';
+              openModal('☔ ' + name, body);
+              var img = document.getElementById('cctvSnapshotImg');
+              var errMsg = document.getElementById('cctvSnapshotErr');
+              img.onerror = function() {
+                img.style.display = 'none';
+                errMsg.style.display = 'block';
+                if (cctvImageRefreshTimer) { clearInterval(cctvImageRefreshTimer); cctvImageRefreshTimer = null; }
+              };
+              function refreshSnapshot() {
+                var el = document.getElementById('cctvSnapshotImg');
+                if (!el) { clearInterval(cctvImageRefreshTimer); cctvImageRefreshTimer = null; return; }
+                el.src = imageUrl + (imageUrl.indexOf('?') > -1 ? '&' : '?') + 't=' + Date.now();
+              }
+              refreshSnapshot();
+              cctvImageRefreshTimer = setInterval(refreshSnapshot, 20000);
+            } else {
+              // 사진 주소를 못 받아온 극히 일부 카메라 - 실시간 영상 새 창으로 폴백
+              showStatus('📹 ' + name + ' - 새 창에서 CCTV 영상을 엽니다');
+              window.open(streamUrl, '_blank');
+            }
           }
         }));
       });
@@ -1549,8 +1573,10 @@
   // CCTV 영상(hls.js)이 재생 중일 때 모달이 다른 내용으로 바뀌거나 닫히면 재생을 확실히
   // 멈추기 위한 핸들 - 안 멈추면 화면엔 안 보여도 백그라운드에서 계속 스트림을 받습니다.
   var currentCctvHls = null;
+  var cctvImageRefreshTimer = null; // CCTV 정지영상 자동 새로고침 타이머 - 모달이 바뀌거나 닫히면 반드시 정리
   function stopCctvPlayback() {
     if (currentCctvHls) { currentCctvHls.destroy(); currentCctvHls = null; }
+    if (cctvImageRefreshTimer) { clearInterval(cctvImageRefreshTimer); cctvImageRefreshTimer = null; }
   }
 
   function openModal(title, bodyHtml) {
