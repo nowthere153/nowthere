@@ -252,7 +252,7 @@
 <button id="restoreModalBtn">🧭 목록 다시 보기</button>
 
 <!-- ⚠️ 아래 appkey는 발급받으신 JavaScript 키입니다 -->
-<script src="//dapi.kakao.com/v2/maps/sdk.js?appkey=fe07520c037bcd001a849137e09baca6&libraries=services,clusterer"></script>
+<script src="//dapi.kakao.com/v2/maps/sdk.js?appkey=fe07520c037bcd001a849137e09baca6&libraries=services"></script>
 <script async src="//www.instagram.com/embed.js"></script>
 
 <!-- hls.js - CCTV 영상(HLS 스트림, .m3u8)을 정보창 안에 바로 재생하기 위해 사용 (ID 69 후속).
@@ -490,27 +490,27 @@
   // URL로 만들어두고, 지도 마커와 정보창 아이콘 양쪽에서 완전히 같은 그림을 재사용함 -
   // 이러면 어떤 기기에서 봐도 항상 똑같이 보임.
   function weatherIconSvgDataUrl() {
-    // v5 (2026-07, 사용자 제공 참고 이미지 반영): 우산살 뼈대 + 눈 점 산포였던 v4가
-    // 작은 크기(지도 마커)에서 우산인지 눈인지 직관적으로 안 읽힌다는 지적을 받아,
-    // 꽉 찬 실루엣 우산 하나만 진하게 강조하는 형태로 다시 그림 - 참고 이미지처럼
-    // 남색 솔리드 우산 + 옅은 회색 원형 테두리, 눈 표시는 뺌(12px처럼 작아도 우산
-    // 모양이 분명히 인식되는 걸 우선함).
+    // v6 (2026-07, 사용자 제공 고화질 참고 이미지 픽셀 분석 후 재작업): v5는
+    // "많이 다르다"는 피드백을 받아, 참고 이미지를 PIL로 직접 픽셀 샘플링해서
+    // 캐노피 폭/높이 비율, 테두리 굵기, 살대 색(흰색 곡선 2개, 얇은 남색선 아님),
+    // 꼭지 모양(삼각뿔이 아니라 둥근 알약 모양), 손잡이 갈고리 굵기까지 맞춰 다시 그림.
+    // 원 안에서 우산이 화면을 꽉 채우지 않고 여백을 두도록 축소/중앙정렬함.
     var svg = '<svg xmlns="http://www.w3.org/2000/svg" width="30" height="30" viewBox="0 0 30 30">' +
-      '<circle cx="15" cy="15" r="14" fill="white" stroke="#c7cbd1" stroke-width="1.3"/>' +
-      '<path d="M14.3 5.2 L15.7 5.2 L15.4 7.3 L14.6 7.3 Z" fill="#17335c"/>' + // 꼭대기 작은 촉
-      // 우산 캐노피 - 꽉 찬 실루엣(반원 돔 + 아래쪽 5칸 부채꼴 테두리)
-      '<path d="M6 18 C6 11.5, 10 7, 15 7 C20 7, 24 11.5, 24 18 ' +
-      'Q22.5 16, 21 18 Q19.5 16, 18 18 Q16.5 16, 15 18 Q13.5 16, 12 18 Q10.5 16, 9 18 Q7.5 16, 6 18 Z" ' +
+      '<circle cx="15" cy="15" r="13.5" fill="white" stroke="#ccd2e0" stroke-width="2.2"/>' +
+      '<rect x="14.48" y="6.80" width="1.05" height="1.95" rx="0.52" fill="#17335c"/>' + // 꼭대기 둥근 알약 촉
+      // 우산 캐노피 - 꽉 찬 실루엣(넓고 낮은 돔 + 아래쪽 6칸 부채꼴 테두리)
+      '<path d="M7.73 16.31 ' +
+      'C7.73 12.13, 11.11 7.70, 15 7.70 ' +
+      'C18.90 7.70, 22.27 12.13, 22.27 16.31 ' +
+      'Q21.14 14.89, 20.02 16.31 Q18.90 14.89, 17.77 16.31 Q16.65 14.89, 15.52 16.31 ' +
+      'Q14.40 14.89, 13.28 16.31 Q12.15 14.89, 11.03 16.31 Q9.91 14.89, 7.73 16.31 Z" ' +
       'fill="#17335c"/>' +
-      // 캐노피 위 살대 구분선(옅게) - 부채꼴임을 은은하게 표현
-      '<g stroke="#3a5a8c" stroke-linecap="round">' +
-      '<line x1="15" y1="8" x2="15" y2="17" stroke-width="0.6"/>' +
-      '<line x1="10.5" y1="9.3" x2="12.5" y2="17.3" stroke-width="0.5"/>' +
-      '<line x1="19.5" y1="9.3" x2="17.5" y2="17.3" stroke-width="0.5"/>' +
-      '</g>' +
-      // 손잡이
-      '<line x1="15" y1="17" x2="15" y2="23" stroke="#17335c" stroke-width="1.6" stroke-linecap="round"/>' +
-      '<path d="M15 23 q0 3 -3 3" fill="none" stroke="#17335c" stroke-width="1.6" stroke-linecap="round"/>' +
+      // 캐노피 위 살대 구분선 - 굵은 흰색 곡선 2개로 3칸 분할(참고 이미지와 동일)
+      '<path d="M12.00 8.90 Q10.66 12.34 11.48 16.31" fill="none" stroke="white" stroke-width="0.82" stroke-linecap="round"/>' +
+      '<path d="M18.00 8.90 Q19.34 12.34 18.52 16.31" fill="none" stroke="white" stroke-width="0.82" stroke-linecap="round"/>' +
+      // 손잡이(굵고 둥근 J자 갈고리)
+      '<path d="M15 16.31 L15 20.96" stroke="#17335c" stroke-width="1.42" stroke-linecap="round"/>' +
+      '<path d="M15 20.96 q0 2.85 -2.85 2.85" fill="none" stroke="#17335c" stroke-width="1.42" stroke-linecap="round"/>' +
       '</svg>';
     // encodeURIComponent 사용 이유: 이모지 등 유니코드가 들어가도 깨지지 않도록
     // (btoa는 유니코드를 못 다룸) 안전한 인코딩 방식을 씀
@@ -527,7 +527,7 @@
   function mapCreateMarker(lat, lng, opts) {
     opts = opts || {};
     var markerOpts = { position: mapLatLng(lat, lng) };
-    if (!opts.skipMap) markerOpts.map = map; // skipMap: 클러스터러에 넘길 마커는 지도에 직접 올리지 않음
+    if (!opts.skipMap) markerOpts.map = map; // skipMap: 호출부에서 별도로 지도에 올릴 때 사용(현재 CCTV는 미사용)
     if (opts.color === 'red') markerOpts.image = pinImage('#e11d48');
     if (opts.color === 'blue') markerOpts.image = pinImage('#2563eb');
     if (opts.color === 'purple') markerOpts.image = weatherIconImage();
@@ -1288,32 +1288,40 @@
   // ⚠️ 2026-07: 지금까지는 지도 화면(bounds)에 걸리는 CCTV를 확대·축소 단계와 무관하게
   // 전부 마커로 찍어서, 도로 위에서는 아이콘이 줄지어 보이고 전국 단위로 축소하면
   // 아이콘 무더기만 보이는 문제가 있었음(네이버는 축소할수록 주요 지점만 보이다가
-  // 확대하면 비율적으로 늘어남). 카카오맵 SDK 공식 클러스터러(MarkerClusterer)를 써서
-  // 같은 효과를 냄 - 마커가 서로 가까워 겹칠 정도로 축소되면 자동으로 숫자 배지 하나로
-  // 묶어 보여주고, 확대하면 자동으로 다시 개별 마커로 풀림. minLevel 값을 낮추면 더
-  // 낮은(=더 확대된) 단계에서부터 묶이고, 높이면 꽤 축소해야 묶임 - 실제 화면 보고
-  // 조정 필요.
-  var cctvClusterer = null;
-  function getCctvClusterer() {
-    if (!cctvClusterer) {
-      cctvClusterer = new kakao.maps.MarkerClusterer({
-        map: map,
-        averageCenter: true,
-        minLevel: 5,
-        disableClickZoom: false,
-        styles: [{
-          width: '38px', height: '38px', background: 'rgba(124,58,237,0.85)',
-          borderRadius: '19px', color: '#fff', textAlign: 'center',
-          lineHeight: '38px', fontWeight: 'bold', fontSize: '13px'
-        }]
-      });
-    }
-    return cctvClusterer;
+  // 확대하면 비율적으로 늘어남).
+  // 처음엔 카카오맵 SDK 공식 클러스터러(MarkerClusterer)로 시도했는데, 이건 마커가
+  // 겹칠 정도로 축소되면 개별 아이콘 대신 "숫자가 적힌 원형 배지" 하나로 뭉쳐 보여주는
+  // 방식이라 사용자가 원하는 그림(네이버처럼 숫자로 뭉치지 않고, 개별 우산 아이콘이
+  // 항상 유지된 채로 그 개수만 지도 스케일에 비례해서 고르게 줄었다 늘었다 하는 것)과
+  // 다르다는 피드백을 받아 폐기함.
+  // 대신 격자(그리드) 기반 솎아내기를 직접 구현: 현재 화면(bounds)을 cellsPerAxis x
+  // cellsPerAxis 칸으로 나누고, 한 칸에는 대표 CCTV 1개만 남김. 칸 개수는 확대 단계
+  // (level, 카카오맵 기준 숫자가 작을수록 확대)에 따라 달라져서, 축소할수록(level 큼)
+  // 칸이 커져 소수만 고르게 보이고, 확대할수록(level 작음) 칸이 촘촘해져 개별 카메라가
+  // 거의 다 보이게 됨 - 숫자 배지 없이 "아이콘 개수만" 스케일에 비례해서 변함.
+  function decimateCctvList(list, bounds, level) {
+    var cellsPerAxis = Math.max(3, Math.min(16, 17 - level));
+    var lngSpan = Math.max(bounds.maxX - bounds.minX, 0.0001);
+    var latSpan = Math.max(bounds.maxY - bounds.minY, 0.0001);
+    var cellLng = lngSpan / cellsPerAxis;
+    var cellLat = latSpan / cellsPerAxis;
+    var picked = {};
+    var out = [];
+    list.forEach(function(item) {
+      var lat = parseFloat(item.coordy), lng = parseFloat(item.coordx);
+      if (isNaN(lat) || isNaN(lng)) return;
+      var col = Math.floor((lng - bounds.minX) / cellLng);
+      var row = Math.floor((lat - bounds.minY) / cellLat);
+      var key = row + '_' + col;
+      if (picked[key]) return; // 이 칸엔 이미 대표가 있음 - 나머지는 이번 화면에서 생략
+      picked[key] = true;
+      out.push(item);
+    });
+    return out;
   }
 
   function clearCctvMarkers() {
-    if (cctvClusterer) cctvClusterer.clear();
-    cctvMarkers.forEach(mapRemoveMarker); // 클러스터러 생성 전에 찍혔을 수 있는 마커 방어적 정리
+    cctvMarkers.forEach(mapRemoveMarker);
     cctvMarkers = [];
   }
 
@@ -1325,7 +1333,10 @@
         return;
       }
       clearCctvMarkers();
-      result.list.forEach(function(item) {
+      var bounds = mapGetBounds();
+      var level = mapGetLevel();
+      var shownList = decimateCctvList(result.list, bounds, level);
+      shownList.forEach(function(item) {
         var lat = parseFloat(item.coordy); // 출력변수 문서 기준 coordy=위도
         var lng = parseFloat(item.coordx); // 출력변수 문서 기준 coordx=경도
         if (isNaN(lat) || isNaN(lng)) return;
@@ -1334,7 +1345,6 @@
         var imageUrl = item.imageUrl || '';
         cctvMarkers.push(mapCreateMarker(lat, lng, {
           color: 'purple',
-          skipMap: true, // 클러스터러가 지도에 올리는 걸 담당 - 여기서 바로 올리지 않음
           onClick: function() {
             if (!imageUrl && !streamUrl) {
               showStatus('⚠️ ' + name + ' - 영상 정보를 받아오지 못했습니다.');
@@ -1385,8 +1395,9 @@
           }
         }));
       });
-      getCctvClusterer().addMarkers(cctvMarkers);
-      showStatus('📹 CCTV ' + result.list.length + '개 표시됨');
+      // 전체 개수 대비 실제로 화면에 찍힌(격자 솎아내기 후) 개수를 함께 보여줘서
+      // "줄었다"는 걸 사용자도 체감할 수 있게 함
+      showStatus('📹 CCTV ' + shownList.length + '개 표시됨 (주변 전체 ' + result.list.length + '개 중)');
     });
   }
 
