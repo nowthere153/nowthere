@@ -194,10 +194,33 @@
     cursor: pointer; padding: 4px 8px;
   }
   #modal.peek #modalContent { display: none; }
-  #restoreModalBtn {
+  /* ⚠️ 2026-07: 원래는 "방금 접은 정보창 하나"만 다시 펼치는 단순 버튼(#restoreModalBtn)
+     이었는데, 매번 접을 때마다 이전 내용이 사라져서 여러 곳(예: 서울/대전/대구/부산
+     CCTV를 차례로 열어봄) 확인한 걸 한 번에 비교해볼 방법이 없다는 피드백을 받음.
+     그래서 세션 동안 열어본 CCTV 날씨 확인 위치를 계속 쌓아두는 가로 스크롤 목록으로
+     바꿈 - 접을 때마다 그동안 확인한 곳들이 작은 썸네일과 함께 전부 나열되고, 하나를
+     누르면 그 위치를 다시 엶("날씨 개요"처럼 여러 지역을 훑어볼 수 있음). CCTV 팝업이
+     아닌 다른 정보창(내 기록 목록 등)은 기록 대상이 아니라서, 그런 경우엔 기존처럼
+     단순히 "다시 보기" 버튼 하나만 나옴(renderRestoreBar 참고). */
+  #restoreBar {
     display: none; position: fixed; bottom: 16px; left: 50%; transform: translateX(-50%);
-    z-index: 101; background: #111827; color: white; border: none; padding: 10px 18px;
-    border-radius: 20px; font-size: 13px; cursor: pointer; box-shadow: 0 2px 10px rgba(0,0,0,0.3);
+    z-index: 101; max-width: 94vw; background: #111827; border-radius: 20px;
+    padding: 7px 9px; box-shadow: 0 2px 10px rgba(0,0,0,0.3);
+    align-items: center; gap: 7px; overflow-x: auto; -webkit-overflow-scrolling: touch;
+  }
+  #restoreBar.show { display: flex; }
+  .restoreChip {
+    flex: 0 0 auto; display: flex; align-items: center; gap: 6px; max-width: 130px;
+    background: #1f2937; color: #fff; border: none; border-radius: 16px;
+    padding: 5px 12px 5px 5px; cursor: pointer; font-size: 12px; white-space: nowrap;
+  }
+  .restoreChip.simple { padding: 8px 14px; font-size: 13px; }
+  .restoreChip img {
+    width: 24px; height: 24px; border-radius: 50%; object-fit: cover;
+    background: #374151; flex: 0 0 auto;
+  }
+  .restoreChip .rcName {
+    max-width: 82px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
   }
   #statusMsg {
     position: absolute; bottom: 16px; left: 50%; transform: translateX(-50%);
@@ -249,7 +272,7 @@
     <div id="modalBody"></div>
   </div>
 </div>
-<button id="restoreModalBtn">🧭 목록 다시 보기</button>
+<div id="restoreBar"></div>
 
 <!-- ⚠️ 아래 appkey는 발급받으신 JavaScript 키입니다 -->
 <script src="//dapi.kakao.com/v2/maps/sdk.js?appkey=fe07520c037bcd001a849137e09baca6&libraries=services"></script>
@@ -1346,6 +1369,73 @@
     cctvMarkers = [];
   }
 
+  // entry: { name, lat, lng, imageUrl, streamUrl } - 마커를 처음 클릭했을 때도,
+  // 하단 "확인한 곳" 목록(restoreBar)에서 다시 클릭했을 때도 이 함수 하나로 처리함
+  // (openCctvPopup 분리 전에는 마커 클릭 핸들러 안에만 있어서 목록에서 재사용할 수 없었음).
+  function openCctvPopup(entry) {
+    var name = entry.name, lat = entry.lat, lng = entry.lng;
+    var streamUrl = entry.streamUrl, imageUrl = entry.imageUrl;
+    if (!imageUrl && !streamUrl) {
+      showStatus('⚠️ ' + name + ' - 영상 정보를 받아오지 못했습니다.');
+      return;
+    }
+    recordCctvHistory(entry); // 다시 열람해도 "최근 확인"으로 맨 앞으로 이동
+    // ⚠️ 2026-07: 실시간 스트리밍(hls.js, 새 창 모두)은 cctvsec.ktict.co.kr이
+    // 우리 서버(데이터센터 IP)와 브라우저 직접요청(CORS로 추정) 양쪽 다 막아서
+    // 페이지 안 재생이 사실상 불가능함을 확인함. 반면 이 기능의 실제 목적("그
+    // 위치에 지금 비/눈이 오는지 확인")에는 정지영상(사진) 한 장으로 충분하고,
+    // ITS의 cctvType=3(정지영상) 주소는 세션 토큰 없는 단순 파일이라 우리 서버·
+    // 브라우저 모두 문제없이 받아짐이 실제 테스트로 확인됨. 그래서 사진을 기본으로
+    // 페이지 안에 바로 보여주고(스트리밍처럼 CORS/차단 문제가 없어 로딩 지연·
+    // 검은 화면 없이 즉시 표시됨), 실시간 영상은 원하는 사람만 보는 보조 옵션으로 남겨둠.
+    if (imageUrl) {
+      // 위치 이름이 제목표시줄과 본문에 중복 표시되던 것을 정리 - 제목표시줄은
+      // "이곳 날씨도 확인"(공통 안내)+아이콘을 담당하고, 위치 이름은 본문에 한
+      // 번만 표시. 아이콘도 이모지(☔) 대신 지도 마커와 같은 SVG 이미지를 써서
+      // 기기마다 다르게 보이던 문제를 없앰(weatherIconSvgDataUrl 참고).
+      // ⚠️ 2026-07: ITS 정지영상은 카메라 원본 해상도가 4:3 프레임보다 좁아서(예:
+      // 320x240 안에 실제 화면이 4:3보다 좁게 들어있는 경우) 우측에 흰 여백이 남는
+      // 경우가 있음을 확인함 - object-fit:cover로 크롭해도 원본 이미지 자체에 이미
+      // 여백이 있으면 CSS로는 없앨 수 없음. 마침 그 여백이 딱 버튼 하나 놓기 좋은
+      // 자리라, 실시간 영상 링크를 하단의 작은 글자 대신 이미지 위에 겹치는
+      // "🔴 LIVE" 배지 버튼으로 옮겨서 그 공간을 활용하고 클릭 동선도 더 눈에
+      // 띄게 함(요청 반영: 텍스트 링크 → 버튼).
+      var body = '<p style="margin:0 0 10px;color:#888;font-size:12.5px;">' + name + '</p>' +
+        '<div style="position:relative;">' +
+        '<img id="cctvSnapshotImg" style="width:100%;max-width:480px;aspect-ratio:4/3;' +
+        'object-fit:cover;border-radius:8px;background:#eee;display:block;" />' +
+        (streamUrl ? '<a href="' + streamUrl + '" target="_blank" rel="noopener" ' +
+          'style="position:absolute;top:8px;right:8px;display:flex;align-items:center;gap:4px;' +
+          'background:rgba(17,24,39,0.82);color:#fff;font-size:11.5px;font-weight:bold;' +
+          'padding:6px 11px;border-radius:14px;text-decoration:none;">🔴 LIVE</a>' : '') +
+        '</div>' +
+        '<p id="cctvSnapshotErr" style="display:none;margin-top:8px;font-size:12.5px;color:#c0392b;">' +
+        '사진을 불러오지 못했습니다' + (streamUrl ? ' - 우측 상단 LIVE 버튼으로 실시간 영상을 대신 확인해보세요.' : '.') + '</p>' +
+        '<p style="margin:8px 0 0;font-size:11.5px;color:#aaa;">약 20초마다 자동으로 새로고침됩니다' +
+        (streamUrl ? ' · LIVE 버튼을 누르면 실시간 영상이 새 창으로 열립니다' : '') +
+        '</p>';
+      openModal('이곳 날씨도 확인', body, weatherIconSvgDataUrl());
+      var img = document.getElementById('cctvSnapshotImg');
+      var errMsg = document.getElementById('cctvSnapshotErr');
+      img.onerror = function() {
+        img.style.display = 'none';
+        errMsg.style.display = 'block';
+        if (cctvImageRefreshTimer) { clearInterval(cctvImageRefreshTimer); cctvImageRefreshTimer = null; }
+      };
+      function refreshSnapshot() {
+        var el = document.getElementById('cctvSnapshotImg');
+        if (!el) { clearInterval(cctvImageRefreshTimer); cctvImageRefreshTimer = null; return; }
+        el.src = imageUrl + (imageUrl.indexOf('?') > -1 ? '&' : '?') + 't=' + Date.now();
+      }
+      refreshSnapshot();
+      cctvImageRefreshTimer = setInterval(refreshSnapshot, 20000);
+    } else {
+      // 사진 주소를 못 받아온 극히 일부 카메라 - 실시간 영상 새 창으로 폴백
+      showStatus('📹 ' + name + ' - 새 창에서 CCTV 영상을 엽니다');
+      window.open(streamUrl, '_blank');
+    }
+  }
+
   function loadCctvMarkers() {
     showStatus('📹 주변 CCTV 불러오는 중...');
     fetchCctvList(mapGetBounds(), function(result) {
@@ -1369,52 +1459,7 @@
           color: 'purple',
           iconSize: iconSize,
           onClick: function() {
-            if (!imageUrl && !streamUrl) {
-              showStatus('⚠️ ' + name + ' - 영상 정보를 받아오지 못했습니다.');
-              return;
-            }
-            // ⚠️ 2026-07: 실시간 스트리밍(hls.js, 새 창 모두)은 cctvsec.ktict.co.kr이
-            // 우리 서버(데이터센터 IP)와 브라우저 직접요청(CORS로 추정) 양쪽 다 막아서
-            // 페이지 안 재생이 사실상 불가능함을 확인함. 반면 이 기능의 실제 목적("그
-            // 위치에 지금 비/눈이 오는지 확인")에는 정지영상(사진) 한 장으로 충분하고,
-            // ITS의 cctvType=3(정지영상) 주소는 세션 토큰 없는 단순 파일이라 우리 서버·
-            // 브라우저 모두 문제없이 받아짐이 실제 테스트로 확인됨. 그래서 사진을 기본으로
-            // 페이지 안에 바로 보여주고(스트리밍처럼 CORS/차단 문제가 없어 로딩 지연·
-            // 검은 화면 없이 즉시 표시됨), 실시간 영상은 원하는 사람만 보는 보조 옵션으로
-            // 새 창 링크로 남겨둠.
-            if (imageUrl) {
-              // 위치 이름이 제목표시줄과 본문에 중복 표시되던 것을 정리 - 제목표시줄은
-              // "이곳 날씨도 확인"(공통 안내)+아이콘을 담당하고, 위치 이름은 본문에 한
-              // 번만 표시. 아이콘도 이모지(☔) 대신 지도 마커와 같은 SVG 이미지를 써서
-              // 기기마다 다르게 보이던 문제를 없앰(weatherIconSvgDataUrl 참고).
-              var body = '<p style="margin:0 0 10px;color:#888;font-size:12.5px;">' + name + '</p>' +
-                '<img id="cctvSnapshotImg" style="width:100%;max-width:480px;aspect-ratio:4/3;' +
-                'object-fit:cover;border-radius:8px;background:#eee;display:block;" />' +
-                '<p id="cctvSnapshotErr" style="display:none;margin-top:8px;font-size:12.5px;color:#c0392b;">' +
-                '사진을 불러오지 못했습니다' + (streamUrl ? ' - 실시간 영상으로 대신 확인해보세요.' : '.') + '</p>' +
-                '<p style="margin:8px 0 0;font-size:11.5px;color:#aaa;">약 20초마다 자동으로 새로고침됩니다' +
-                (streamUrl ? ' · <a href="' + streamUrl + '" target="_blank" style="color:#7c3aed;">실시간 영상으로 보기(새 창)</a>' : '') +
-                '</p>';
-              openModal('이곳 날씨도 확인', body, weatherIconSvgDataUrl());
-              var img = document.getElementById('cctvSnapshotImg');
-              var errMsg = document.getElementById('cctvSnapshotErr');
-              img.onerror = function() {
-                img.style.display = 'none';
-                errMsg.style.display = 'block';
-                if (cctvImageRefreshTimer) { clearInterval(cctvImageRefreshTimer); cctvImageRefreshTimer = null; }
-              };
-              function refreshSnapshot() {
-                var el = document.getElementById('cctvSnapshotImg');
-                if (!el) { clearInterval(cctvImageRefreshTimer); cctvImageRefreshTimer = null; return; }
-                el.src = imageUrl + (imageUrl.indexOf('?') > -1 ? '&' : '?') + 't=' + Date.now();
-              }
-              refreshSnapshot();
-              cctvImageRefreshTimer = setInterval(refreshSnapshot, 20000);
-            } else {
-              // 사진 주소를 못 받아온 극히 일부 카메라 - 실시간 영상 새 창으로 폴백
-              showStatus('📹 ' + name + ' - 새 창에서 CCTV 영상을 엽니다');
-              window.open(streamUrl, '_blank');
-            }
+            openCctvPopup({ name: name, lat: lat, lng: lng, imageUrl: imageUrl, streamUrl: streamUrl });
           }
         }));
       });
@@ -1662,7 +1707,7 @@
     content.style.top = '';
     content.style.transform = '';
     document.getElementById('modal').classList.remove('peek');
-    document.getElementById('restoreModalBtn').style.display = 'none';
+    document.getElementById('restoreBar').classList.remove('show');
     var titleEl = document.getElementById('modalTitle');
     titleEl.innerHTML = ''; // 아이콘 유무와 무관하게 항상 비우고 다시 구성
     if (iconDataUrl) {
@@ -1676,19 +1721,72 @@
     document.getElementById('modalBody').innerHTML = bodyHtml;
     document.getElementById('modal').classList.add('show');
   }
+
+  // ================================================================
+  // 세션 중 확인한 CCTV 날씨 위치 기록 (ID 74 후속, 2026-07)
+  // "여러 우산 아이콘을 열어보고 접었을 때, 그동안 확인한 곳을 한눈에 다시 볼 수
+  // 있으면 좋겠다"는 요청으로 추가. 페이지를 새로고침하면 사라지는 세션 한정
+  // 기록이고(서버에 저장하지 않음), 최근 확인한 순서대로 앞쪽에 쌓임.
+  // ================================================================
+  var cctvHistory = [];
+  var CCTV_HISTORY_MAX = 12; // 너무 길어지면 가로 스크롤 목록이 무의미해져서 상한을 둠
+
+  function recordCctvHistory(entry) {
+    var key = entry.name + '|' + entry.lat.toFixed(5) + '|' + entry.lng.toFixed(5);
+    cctvHistory = cctvHistory.filter(function(e) { return e.key !== key; }); // 같은 곳 재확인시 맨 앞으로 이동
+    entry.key = key;
+    cctvHistory.unshift(entry);
+    if (cctvHistory.length > CCTV_HISTORY_MAX) cctvHistory.length = CCTV_HISTORY_MAX;
+  }
+
+  // 접기 버튼을 누른 시점의 상태로 하단 바를 다시 그림.
+  // - 이번 세션에서 확인한 CCTV가 하나라도 있으면: 각각을 작은 썸네일 칩으로 나열(가로 스크롤).
+  //   칩을 누르면 그 위치를 다시 엶 - 여러 지역 날씨를 훑어보는 "개요" 용도.
+  // - CCTV 기록이 없으면(예: 다른 종류의 정보창을 접은 경우): 기존처럼 단순 "다시 보기" 버튼 하나만.
+  function renderRestoreBar() {
+    var bar = document.getElementById('restoreBar');
+    bar.innerHTML = '';
+    if (cctvHistory.length === 0) {
+      var simpleBtn = document.createElement('button');
+      simpleBtn.className = 'restoreChip simple';
+      simpleBtn.textContent = '🧭 목록 다시 보기';
+      simpleBtn.addEventListener('click', function() {
+        document.getElementById('modal').classList.remove('peek');
+        bar.classList.remove('show');
+      });
+      bar.appendChild(simpleBtn);
+      return;
+    }
+    cctvHistory.forEach(function(entry) {
+      var chip = document.createElement('button');
+      chip.className = 'restoreChip';
+      var thumb = document.createElement('img');
+      thumb.src = entry.imageUrl || weatherIconSvgDataUrl();
+      thumb.alt = '';
+      thumb.onerror = function() { thumb.src = weatherIconSvgDataUrl(); }; // 사진 로드 실패시 우산 아이콘으로 대체
+      chip.appendChild(thumb);
+      var nameSpan = document.createElement('span');
+      nameSpan.className = 'rcName';
+      nameSpan.textContent = entry.name; // textNode 아님 - textContent라 안전(HTML 해석 안 됨)
+      chip.appendChild(nameSpan);
+      chip.addEventListener('click', function() {
+        bar.classList.remove('show');
+        openCctvPopup(entry);
+      });
+      bar.appendChild(chip);
+    });
+  }
+
   document.getElementById('minimizeBtn').addEventListener('click', function() {
     document.getElementById('modal').classList.add('peek');
-    document.getElementById('restoreModalBtn').style.display = 'block';
-  });
-  document.getElementById('restoreModalBtn').addEventListener('click', function() {
-    document.getElementById('modal').classList.remove('peek');
-    document.getElementById('restoreModalBtn').style.display = 'none';
+    renderRestoreBar();
+    document.getElementById('restoreBar').classList.add('show');
   });
   document.getElementById('closeBtn').addEventListener('click', function() {
     stopCctvPlayback();
     document.getElementById('modal').classList.remove('show');
     document.getElementById('modalBody').innerHTML = '';
-    document.getElementById('restoreModalBtn').style.display = 'none';
+    document.getElementById('restoreBar').classList.remove('show');
     clearJourneyPolyline();
   });
 
