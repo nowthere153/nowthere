@@ -152,6 +152,8 @@
     #mapTypeBtn { left: 10px; bottom: 12px; font-size: 11.5px; padding: 7px 10px; }
     #cctvToggleBtn { left: 10px; bottom: 56px; font-size: 11.5px; padding: 7px 10px; }
     #cctvAdminBtn { left: 118px; bottom: 56px; font-size: 11.5px; padding: 7px 10px; }
+    /* 모바일에서는 76px 썸네일이 이미 충분히 잘 보인다는 피드백을 받아 기존 52px 유지 */
+    .restoreChip { width: 52px; height: 52px; }
   }
 
   .formRow { margin-bottom: 12px; }
@@ -212,12 +214,16 @@
   /* ⚠️ 2026-07 재조정: 처음엔 작은 원형 썸네일(24px)+장소이름 글자를 나란히 붙였는데,
      막상 써보니 썸네일이 너무 작아 사진 내용이 안 보이고 이름도 좁아서 다 잘려나가
      정보 가치가 낮다는 피드백을 받음. 그래서 글자 라벨은 빼고(대신 title 속성으로
-     마우스 올리면 보이는 툴팁 처리) 정사각형 썸네일을 크게(52px) 키워서, "여러 지역
+     마우스 올리면 보이는 툴팁 처리) 정사각형 썸네일을 크게 키워서, "여러 지역
      날씨를 이미지로 한눈에 훑어보기"라는 원래 목적에 맞게 이미지 자체가 정보가
-     되도록 함. */
+     되도록 함.
+     ⚠️ 2026-07 재재조정: 52px이 모바일에선 괜찮았지만 PC 화면(더 멀리서 보고, 화면도
+     큼)에서는 여전히 작아 안 보인다는 피드백을 받아, 기본(PC 기준) 크기를 76px로
+     키우고 좁은 화면(모바일, 이 파일의 다른 곳과 동일하게 480px 기준)에서만 기존
+     52px로 되돌리도록 아래 @media에 별도로 정리함. */
   .restoreChip {
     flex: 0 0 auto; border: none; border-radius: 10px; padding: 0; cursor: pointer;
-    background: #374151; overflow: hidden; width: 52px; height: 52px;
+    background: #374151; overflow: hidden; width: 76px; height: 76px;
   }
   .restoreChip.simple {
     width: auto; height: auto; display: flex; align-items: center; background: #1f2937;
@@ -564,8 +570,16 @@
   // 작고 수수했음(우리 이전 값 12~30px 범위는 그 상황에서도 15~23px 정도로 여전히
   // 큼). 그래서 최소/최대 크기를 더 낮추고(9~24px), 축소 전환이 시작되는 지점도
   // level 3→10 사이로 앞당겨서, 어느 정도만 축소해도 이미 네이버 수준으로 작아지게 함.
+  // ⚠️ 2026-07 재재조정: 위 값이 모바일에서는 잘 맞았지만, PC 화면은 보통 지도 표시
+  // 영역(픽셀 수) 자체가 훨씬 넓어서 같은 확대 단계(level)라도 실제로 보이는 지리적
+  // 범위가 더 넓어짐 - 그 결과 똑같이 작은 픽셀 크기의 아이콘이 PC에서는 "도로폭
+  // 수준"으로 거의 안 보일 정도로 작게 느껴진다는 피드백을 받음. 그래서 PC/모바일
+  // 구분 기준(이 파일의 다른 반응형 스타일과 동일하게 480px)으로 나눠서, PC에서는
+  // 최소/최대 크기를 좀 더 키움(14~30px). 모바일은 기존 값(9~24px) 그대로 유지.
   function weatherIconSizeForLevel(level) {
-    var minSize = 9, maxSize = 24;
+    var isNarrowScreen = window.innerWidth <= 480; // 이 파일의 다른 @media 기준과 통일
+    var minSize = isNarrowScreen ? 9 : 14;
+    var maxSize = isNarrowScreen ? 24 : 30;
     var minLevel = 2, maxLevel = 10; // 이 범위 밖은 양끝 값으로 고정(clamp)
     var t = (level - minLevel) / (maxLevel - minLevel);
     t = Math.max(0, Math.min(1, t));
