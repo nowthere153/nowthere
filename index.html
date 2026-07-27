@@ -223,7 +223,7 @@
      52px로 되돌리도록 아래 @media에 별도로 정리함. */
   .restoreChip {
     flex: 0 0 auto; border: none; border-radius: 10px; padding: 0; cursor: pointer;
-    background: #374151; overflow: hidden; width: 76px; height: 76px;
+    background: #374151; overflow: hidden; width: 96px; height: 96px;
   }
   .restoreChip.simple {
     width: auto; height: auto; display: flex; align-items: center; background: #1f2937;
@@ -576,10 +576,12 @@
   // 수준"으로 거의 안 보일 정도로 작게 느껴진다는 피드백을 받음. 그래서 PC/모바일
   // 구분 기준(이 파일의 다른 반응형 스타일과 동일하게 480px)으로 나눠서, PC에서는
   // 최소/최대 크기를 좀 더 키움(14~30px). 모바일은 기존 값(9~24px) 그대로 유지.
+  // ⚠️ 2026-07 3차 조정: PC 기준값(14~30px)도 여전히 "다소 작은 느낌"이라는 피드백을
+  // 받아 한 단계 더 키움(18~34px). 모바일은 계속 기존 값 유지.
   function weatherIconSizeForLevel(level) {
     var isNarrowScreen = window.innerWidth <= 480; // 이 파일의 다른 @media 기준과 통일
-    var minSize = isNarrowScreen ? 9 : 14;
-    var maxSize = isNarrowScreen ? 24 : 30;
+    var minSize = isNarrowScreen ? 9 : 18;
+    var maxSize = isNarrowScreen ? 24 : 34;
     var minLevel = 2, maxLevel = 10; // 이 범위 밖은 양끝 값으로 고정(clamp)
     var t = (level - minLevel) / (maxLevel - minLevel);
     t = Math.max(0, Math.min(1, t));
