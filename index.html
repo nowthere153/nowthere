@@ -1451,28 +1451,39 @@
       // 먼저 명시하고, (2)우상단 버튼 문구를 "LIVE" → "🔴 LIVE 보기"로 바꿔 클릭해야
       // 실시간 화면으로 이동하는 "동작"임을 분명히 함, (3)하단 안내문도 "재생됩니다"
       // 대신 "정지영상입니다"를 먼저 말하도록 순서를 바꿈.
+      // ⚠️ 2026-07 추가: LIVE 보기를 새 창이 아니라 팝업 안에서 바로 재생(hls.js)하도록
+      // 변경 - 실제 배포 환경(HTTPS)에서 재생 성공을 확인함(CCTV_LIVE_INLINE_ENABLED
+      // 참고). 실패 시(구형 브라우저, 특정 카메라 오류 등)에는 자동으로 정지영상+새 창
+      // 링크로 되돌아감(아래 onError 콜백).
       var body = '<p style="margin:0 0 10px;color:#888;font-size:12.5px;">' + name + '</p>' +
         '<div style="position:relative;">' +
         '<img id="cctvSnapshotImg" style="width:100%;max-width:480px;aspect-ratio:4/3;' +
         'object-fit:cover;border-radius:8px;background:#eee;display:block;" />' +
-        '<span style="position:absolute;top:8px;left:8px;background:rgba(17,24,39,0.7);' +
+        '<video id="cctvLiveVideo" style="display:none;width:100%;max-width:480px;' +
+        'aspect-ratio:4/3;object-fit:cover;border-radius:8px;background:#000;" ' +
+        'controls muted playsinline></video>' +
+        '<span id="cctvStillBadge" style="position:absolute;top:8px;left:8px;background:rgba(17,24,39,0.7);' +
         'color:#fff;font-size:10.5px;padding:4px 9px;border-radius:12px;">📷 정지영상 · 자동새로고침</span>' +
-        (streamUrl ? '<a href="' + streamUrl + '" target="_blank" rel="noopener" ' +
+        (streamUrl ? '<button id="cctvLiveBtn" type="button" ' +
           'style="position:absolute;top:8px;right:8px;display:flex;align-items:center;gap:4px;' +
           'background:rgba(17,24,39,0.82);color:#fff;font-size:11.5px;font-weight:bold;' +
-          'padding:6px 11px;border-radius:14px;text-decoration:none;">🔴 LIVE 보기</a>' : '') +
+          'padding:6px 11px;border-radius:14px;border:none;cursor:pointer;">🔴 LIVE 보기</button>' : '') +
         '</div>' +
-        '<p id="cctvSnapshotErr" style="display:none;margin-top:8px;font-size:12.5px;color:#c0392b;">' +
-        '사진을 불러오지 못했습니다' + (streamUrl ? ' - 우측 상단 LIVE 보기 버튼으로 실시간 영상을 대신 확인해보세요.' : '.') + '</p>' +
-        '<p style="margin:8px 0 0;font-size:11.5px;color:#aaa;">지금 보이는 화면은 정지영상이며 약 20초마다 자동으로 새로고침됩니다' +
-        (streamUrl ? ' · 실시간으로 보려면 우측 상단의 LIVE 보기 버튼을 눌러 새 창을 열어주세요' : '') +
+        '<p id="cctvSnapshotErr" style="display:none;margin-top:8px;font-size:12.5px;color:#c0392b;"></p>' +
+        '<p id="cctvCaption" style="margin:8px 0 0;font-size:11.5px;color:#aaa;">지금 보이는 화면은 정지영상이며 약 20초마다 자동으로 새로고침됩니다' +
+        (streamUrl ? ' · 실시간으로 보려면 우측 상단의 LIVE 보기 버튼을 눌러주세요' : '') +
         '</p>';
       openModal('이곳 날씨도 확인', body, weatherIconSvgDataUrl());
       var img = document.getElementById('cctvSnapshotImg');
+      var video = document.getElementById('cctvLiveVideo');
       var errMsg = document.getElementById('cctvSnapshotErr');
+      var stillBadge = document.getElementById('cctvStillBadge');
+      var caption = document.getElementById('cctvCaption');
+      var liveBtn = document.getElementById('cctvLiveBtn');
       img.onerror = function() {
         img.style.display = 'none';
         errMsg.style.display = 'block';
+        errMsg.textContent = '사진을 불러오지 못했습니다' + (streamUrl ? ' - 우측 상단 LIVE 보기 버튼으로 실시간 영상을 대신 확인해보세요.' : '.');
         if (cctvImageRefreshTimer) { clearInterval(cctvImageRefreshTimer); cctvImageRefreshTimer = null; }
       };
       function refreshSnapshot() {
@@ -1482,6 +1493,29 @@
       }
       refreshSnapshot();
       cctvImageRefreshTimer = setInterval(refreshSnapshot, 20000);
+      if (liveBtn && streamUrl) {
+        liveBtn.addEventListener('click', function() {
+          if (cctvImageRefreshTimer) { clearInterval(cctvImageRefreshTimer); cctvImageRefreshTimer = null; }
+          img.style.display = 'none';
+          stillBadge.style.display = 'none';
+          errMsg.style.display = 'none';
+          liveBtn.style.display = 'none';
+          video.style.display = 'block';
+          caption.innerHTML = '🔴 실시간 영상입니다 (연결 상태에 따라 화질/속도가 달라질 수 있습니다) · ' +
+            '<a href="' + streamUrl + '" target="_blank" rel="noopener" style="color:#4a90d9;">새 창에서 크게 보기</a>';
+          playCctvLiveInline(streamUrl, video, function() {
+            // 인라인 재생 실패 - 정지영상+새 창 링크 방식으로 되돌림
+            video.style.display = 'none';
+            img.style.display = 'block';
+            stillBadge.style.display = '';
+            liveBtn.style.display = '';
+            caption.textContent = '지금 보이는 화면은 정지영상이며 약 20초마다 자동으로 새로고침됩니다 · 실시간 재생에 실패해 새 창으로 열어드립니다';
+            refreshSnapshot();
+            cctvImageRefreshTimer = setInterval(refreshSnapshot, 20000);
+            window.open(streamUrl, '_blank');
+          });
+        });
+      }
     } else {
       // 사진 주소를 못 받아온 극히 일부 카메라 - 실시간 영상 새 창으로 폴백
       showStatus('📹 ' + name + ' - 새 창에서 CCTV 영상을 엽니다');
@@ -1749,27 +1783,29 @@
   }
 
   // ================================================================
-  // ⚠️ 실시간 인라인 재생 - 현재 비활성 상태로 별도 보관 (ID 74, 2026-07)
-  // 지금은 정지영상(사진)이 기본이고 실시간은 새 창 링크로만 제공되지만, "네이버처럼
-  // 팝업 안에서 바로 재생되게 하는 걸 아예 포기한 건 아닌지" 확인 요청이 있었음 - 포기한
-  // 게 아니라, 이 함수를 그대로 남겨두고 코드에서 분리해서 언제든 다시 켤 수 있게
-  // 관리하는 것임. 아래 함수는 지금 어디서도 호출되지 않음(죽은 코드 아님 - 대기 중).
-  // 켜려면: (1) 실시간 스트림 주소(cctvurl)를 우리 서버(hls-relay.js, 이미 존재하지만
-  // 미사용)를 거치거나 iframe으로 우회해서 CORS/세션 차단 없이 받아올 방법이 확인되어야
-  // 하고, (2) CCTV_LIVE_INLINE_ENABLED를 true로 바꾸고 openCctvPopup 안에서 이미지 대신
-  // (또는 함께) 이 함수를 호출하도록 연결하면 됨. hls.js 라이브러리는 이미 로드되어 있어
-  // 추가 작업 없이 바로 쓸 수 있음.
-  var CCTV_LIVE_INLINE_ENABLED = false;
-  function playCctvLiveInline(streamUrl, videoEl) {
+  // 실시간 인라인 재생 (ID 74, 2026-07)
+  // 예전엔 cctvsec.ktict.co.kr이 CORS/혼합콘텐츠로 막힐 것으로 추정되어 비활성 상태로
+  // 남겨뒀었으나, 실제 배포된 HTTPS 사이트에서 hls.js로 직접 테스트한 결과 정상 재생됨을
+  // 확인함(2026-07) - 그래서 아래에서 활성화. onError 콜백: 그래도 특정 카메라/네트워크
+  // 상황에서 재생이 실패할 수 있어(HLS fatal error 등), 호출부가 정지영상+새 창 링크로
+  // 되돌아갈 수 있게 실패를 알려줌.
+  var CCTV_LIVE_INLINE_ENABLED = true;
+  function playCctvLiveInline(streamUrl, videoEl, onError) {
     stopCctvPlayback();
     if (videoEl.canPlayType('application/vnd.apple.mpegurl')) {
       videoEl.src = streamUrl; // 사파리 - <video> 태그가 HLS를 자체 지원
       videoEl.play().catch(function() {});
+      videoEl.onerror = function() { if (onError) onError(); };
     } else if (window.Hls && Hls.isSupported()) {
       currentCctvHls = new Hls();
       currentCctvHls.loadSource(streamUrl);
       currentCctvHls.attachMedia(videoEl);
       currentCctvHls.on(Hls.Events.MANIFEST_PARSED, function() { videoEl.play().catch(function() {}); });
+      currentCctvHls.on(Hls.Events.ERROR, function(evt, data) {
+        if (data && data.fatal && onError) onError();
+      });
+    } else if (onError) {
+      onError(); // 이 브라우저는 HLS 재생 자체를 지원하지 않음 - 새 창 링크로 대체
     }
   }
 
@@ -1853,6 +1889,7 @@
   }
 
   document.getElementById('minimizeBtn').addEventListener('click', function() {
+    stopCctvPlayback(); // 접었을 때 백그라운드에서 영상이 계속 재생/새로고침되지 않도록 정지
     document.getElementById('modal').classList.add('peek');
     renderRestoreBar();
     document.getElementById('restoreBar').classList.add('show');
