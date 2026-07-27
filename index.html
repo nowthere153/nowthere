@@ -204,24 +204,26 @@
      단순히 "다시 보기" 버튼 하나만 나옴(renderRestoreBar 참고). */
   #restoreBar {
     display: none; position: fixed; bottom: 16px; left: 50%; transform: translateX(-50%);
-    z-index: 101; max-width: 94vw; background: #111827; border-radius: 20px;
-    padding: 7px 9px; box-shadow: 0 2px 10px rgba(0,0,0,0.3);
-    align-items: center; gap: 7px; overflow-x: auto; -webkit-overflow-scrolling: touch;
+    z-index: 101; max-width: 94vw; background: #111827; border-radius: 16px;
+    padding: 8px; box-shadow: 0 2px 10px rgba(0,0,0,0.3);
+    align-items: center; gap: 8px; overflow-x: auto; -webkit-overflow-scrolling: touch;
   }
   #restoreBar.show { display: flex; }
+  /* ⚠️ 2026-07 재조정: 처음엔 작은 원형 썸네일(24px)+장소이름 글자를 나란히 붙였는데,
+     막상 써보니 썸네일이 너무 작아 사진 내용이 안 보이고 이름도 좁아서 다 잘려나가
+     정보 가치가 낮다는 피드백을 받음. 그래서 글자 라벨은 빼고(대신 title 속성으로
+     마우스 올리면 보이는 툴팁 처리) 정사각형 썸네일을 크게(52px) 키워서, "여러 지역
+     날씨를 이미지로 한눈에 훑어보기"라는 원래 목적에 맞게 이미지 자체가 정보가
+     되도록 함. */
   .restoreChip {
-    flex: 0 0 auto; display: flex; align-items: center; gap: 6px; max-width: 130px;
-    background: #1f2937; color: #fff; border: none; border-radius: 16px;
-    padding: 5px 12px 5px 5px; cursor: pointer; font-size: 12px; white-space: nowrap;
+    flex: 0 0 auto; border: none; border-radius: 10px; padding: 0; cursor: pointer;
+    background: #374151; overflow: hidden; width: 52px; height: 52px;
   }
-  .restoreChip.simple { padding: 8px 14px; font-size: 13px; }
-  .restoreChip img {
-    width: 24px; height: 24px; border-radius: 50%; object-fit: cover;
-    background: #374151; flex: 0 0 auto;
+  .restoreChip.simple {
+    width: auto; height: auto; display: flex; align-items: center; background: #1f2937;
+    color: #fff; padding: 8px 14px; font-size: 13px; border-radius: 16px; white-space: nowrap;
   }
-  .restoreChip .rcName {
-    max-width: 82px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
-  }
+  .restoreChip img { width: 100%; height: 100%; object-fit: cover; display: block; }
   #statusMsg {
     position: absolute; bottom: 16px; left: 50%; transform: translateX(-50%);
     background: white; padding: 8px 16px; border-radius: 20px; font-size: 13px;
@@ -518,16 +520,22 @@
     // 캐노피 폭/높이 비율, 테두리 굵기, 살대 색(흰색 곡선 2개, 얇은 남색선 아님),
     // 꼭지 모양(삼각뿔이 아니라 둥근 알약 모양), 손잡이 갈고리 굵기까지 맞춰 다시 그림.
     // 원 안에서 우산이 화면을 꽉 채우지 않고 여백을 두도록 축소/중앙정렬함.
+    // v7 (2026-07): 아이콘 크기를 줄이면서(weatherIconSizeForLevel) 시인성이 떨어진다는
+    // 피드백을 받음 - 전체를 다시 키우는 대신, 우산살로 나뉜 가운데 칸만 밝은 파란색
+    // (#2563eb, 앱 다른 곳의 '파란 마커'와 같은 색으로 통일)으로 칠해서 작은 크기에서도
+    // 눈에 잘 띄는 포인트를 만듦. 양옆 칸은 기존 남색을 유지해 차분함은 그대로 둠.
     var svg = '<svg xmlns="http://www.w3.org/2000/svg" width="30" height="30" viewBox="0 0 30 30">' +
       '<circle cx="15" cy="15" r="13.5" fill="white" stroke="#ccd2e0" stroke-width="2.2"/>' +
       '<rect x="14.48" y="6.80" width="1.05" height="1.95" rx="0.52" fill="#17335c"/>' + // 꼭대기 둥근 알약 촉
-      // 우산 캐노피 - 꽉 찬 실루엣(넓고 낮은 돔 + 아래쪽 6칸 부채꼴 테두리)
+      // 우산 캐노피 - 꽉 찬 실루엣(넓고 낮은 돔 + 아래쪽 6칸 부채꼴 테두리), 양옆 칸 색(남색)
       '<path d="M7.73 16.31 ' +
       'C7.73 12.13, 11.11 7.70, 15 7.70 ' +
       'C18.90 7.70, 22.27 12.13, 22.27 16.31 ' +
       'Q21.14 14.89, 20.02 16.31 Q18.90 14.89, 17.77 16.31 Q16.65 14.89, 15.52 16.31 ' +
       'Q14.40 14.89, 13.28 16.31 Q12.15 14.89, 11.03 16.31 Q9.91 14.89, 7.73 16.31 Z" ' +
       'fill="#17335c"/>' +
+      // 우산살(흰 곡선) 사이 가운데 칸만 밝은 파란색으로 덮어 그려서 시인성 확보
+      '<path d="M12.00 8.90 Q10.66 12.34 11.48 16.31 L18.52 16.31 Q19.34 12.34 18.00 8.90 Z" fill="#2563eb"/>' +
       // 캐노피 위 살대 구분선 - 굵은 흰색 곡선 2개로 3칸 분할(참고 이미지와 동일)
       '<path d="M12.00 8.90 Q10.66 12.34 11.48 16.31" fill="none" stroke="white" stroke-width="0.82" stroke-linecap="round"/>' +
       '<path d="M18.00 8.90 Q19.34 12.34 18.52 16.31" fill="none" stroke="white" stroke-width="0.82" stroke-linecap="round"/>' +
@@ -551,9 +559,14 @@
   // 아이콘이 네이버보다 2~3배 커 보인다는 피드백을 받음. 확대 단계(level, 작을수록
   // 확대)에 따라 12~30px 사이에서 선형으로 크기를 줄여, 축소할수록 아이콘이 작고
   // 수수하게, 확대할수록 원래 크기로 커지도록 함.
+  // ⚠️ 2026-07 재조정: 사용자가 보내준 네이버 지도 스크린샷(전국 단위로 축소된 화면)을
+  // 픽셀 단위로 직접 측정해보니 그 축소 단계에서도 아이콘 지름이 약 11px 정도로 매우
+  // 작고 수수했음(우리 이전 값 12~30px 범위는 그 상황에서도 15~23px 정도로 여전히
+  // 큼). 그래서 최소/최대 크기를 더 낮추고(9~24px), 축소 전환이 시작되는 지점도
+  // level 3→10 사이로 앞당겨서, 어느 정도만 축소해도 이미 네이버 수준으로 작아지게 함.
   function weatherIconSizeForLevel(level) {
-    var minSize = 12, maxSize = 30;
-    var minLevel = 3, maxLevel = 14; // 이 범위 밖은 양끝 값으로 고정(clamp)
+    var minSize = 9, maxSize = 24;
+    var minLevel = 2, maxLevel = 10; // 이 범위 밖은 양끝 값으로 고정(clamp)
     var t = (level - minLevel) / (maxLevel - minLevel);
     t = Math.max(0, Math.min(1, t));
     return Math.round(maxSize - t * (maxSize - minSize));
@@ -1339,28 +1352,45 @@
   // (level, 카카오맵 기준 숫자가 작을수록 확대)에 따라 달라져서, 축소할수록(level 큼)
   // 칸이 커져 소수만 고르게 보이고, 확대할수록(level 작음) 칸이 촘촘해져 개별 카메라가
   // 거의 다 보이게 됨 - 숫자 배지 없이 "아이콘 개수만" 스케일에 비례해서 변함.
-  // ⚠️ 2026-07 조정: 전국 단위로 축소했을 때 8개 정도만 남아 네이버(수십 개가 도로
-  // 격자점마다 고르게 표시됨)보다 훨씬 휑해 보인다는 피드백을 받아, 최소 칸 개수
-  // 하한선을 3→8로 올림(최소 8x8=64칸). 실제로는 CCTV가 도로를 따라서만 존재하니
-  // 64칸 중 실제 채워지는 칸은 도로망 분포에 따라 자연히 수십 개 정도로 나오게 됨.
+  // ⚠️ 2026-07 조정(1차): 전국 단위로 축소했을 때 8개 정도만 남아 휑해 보인다는
+  // 피드백으로 최소 칸 개수를 3→8(최소 8x8=64칸)로 올렸었음.
+  // ⚠️ 2026-07 조정(2차): 사용자가 보내준 네이버 지도 스크린샷(전국이 거의 다 보이는
+  // 축소 단계)을 픽셀로 세어보니 그 화면 안에만 CCTV 아이콘이 대략 70~100개 정도
+  // 고르게 깔려 있었음 - 64칸으로는 어차피 최대 64개까지밖에 못 채우니 부족했던
+  // 것으로 보임. 최소 칸 개수 하한선을 8→14(최소 14x14=196칸)로 다시 올리고,
+  // 확대할 때 더 촘촘해지는 상한도 16→26으로 같이 올림.
+  // ⚠️ 2026-07: 네이버는 축소할수록 "고속도로가 만나는 교차점" 같은 주요 지점 위주로
+  // 남기는데, 이전 버전은 격자 한 칸에 "먼저 나온 항목"을 그냥 대표로 뽑아서 실제로는
+  // 국도(its) 카메라가 뽑히는 경우가 많았음(고속도로는 국도보다 커버리지가 훨씬 좁아서
+  // 칸 안에 아예 없는 경우가 많기 때문). 이제 서버가 각 항목에 roadType('ex'=고속도로,
+  // 'its'=국도)을 붙여주므로, 1차로 고속도로만으로 격자를 채우고 → 2차로 아직 빈 칸만
+  // 국도로 채우는 2단계 방식으로 바꿈. 이러면 축소했을 때는 고속도로 위주로, 확대하면
+  // 국도까지 촘촘히 채워지는 흐름이 자연스럽게 나옴.
   function decimateCctvList(list, bounds, level) {
-    var cellsPerAxis = Math.max(8, Math.min(16, 20 - level));
+    var cellsPerAxis = Math.max(14, Math.min(26, 30 - level));
     var lngSpan = Math.max(bounds.maxX - bounds.minX, 0.0001);
     var latSpan = Math.max(bounds.maxY - bounds.minY, 0.0001);
     var cellLng = lngSpan / cellsPerAxis;
     var cellLat = latSpan / cellsPerAxis;
     var picked = {};
     var out = [];
-    list.forEach(function(item) {
+    function cellKeyFor(item) {
       var lat = parseFloat(item.coordy), lng = parseFloat(item.coordx);
-      if (isNaN(lat) || isNaN(lng)) return;
+      if (isNaN(lat) || isNaN(lng)) return null;
       var col = Math.floor((lng - bounds.minX) / cellLng);
       var row = Math.floor((lat - bounds.minY) / cellLat);
-      var key = row + '_' + col;
-      if (picked[key]) return; // 이 칸엔 이미 대표가 있음 - 나머지는 이번 화면에서 생략
-      picked[key] = true;
-      out.push(item);
-    });
+      return row + '_' + col;
+    }
+    function fillPass(items) {
+      items.forEach(function(item) {
+        var key = cellKeyFor(item);
+        if (key === null || picked[key]) return; // 좌표 이상하거나 이 칸엔 이미 대표가 있음
+        picked[key] = true;
+        out.push(item);
+      });
+    }
+    fillPass(list.filter(function(item) { return item.roadType === 'ex'; }));  // 1차: 고속도로부터
+    fillPass(list.filter(function(item) { return item.roadType !== 'ex'; }));  // 2차: 남은 빈 칸을 국도로
     return out;
   }
 
@@ -1394,25 +1424,32 @@
       // 번만 표시. 아이콘도 이모지(☔) 대신 지도 마커와 같은 SVG 이미지를 써서
       // 기기마다 다르게 보이던 문제를 없앰(weatherIconSvgDataUrl 참고).
       // ⚠️ 2026-07: ITS 정지영상은 카메라 원본 해상도가 4:3 프레임보다 좁아서(예:
-      // 320x240 안에 실제 화면이 4:3보다 좁게 들어있는 경우) 우측에 흰 여백이 남는
-      // 경우가 있음을 확인함 - object-fit:cover로 크롭해도 원본 이미지 자체에 이미
-      // 여백이 있으면 CSS로는 없앨 수 없음. 마침 그 여백이 딱 버튼 하나 놓기 좋은
-      // 자리라, 실시간 영상 링크를 하단의 작은 글자 대신 이미지 위에 겹치는
-      // "🔴 LIVE" 배지 버튼으로 옮겨서 그 공간을 활용하고 클릭 동선도 더 눈에
-      // 띄게 함(요청 반영: 텍스트 링크 → 버튼).
+      // 320x240 안에 실제 화면이 4:3보다 좁게 들어있는 경우) 여백이 남는 경우가
+      // 있음을 확인함 - object-fit:cover로 크롭해도 원본 이미지 자체에 이미 여백이
+      // 있으면 CSS로는 없앨 수 없고, 카메라마다 여백 위치/크기가 달라서 어떤 카메라는
+      // 버튼이 빈 공간 위에, 어떤 카메라는 실제 화면 위에 겹쳐 보일 수 있음(기기 차이가
+      // 아니라 카메라별 원본 이미지 차이로 추정).
+      // ⚠️ 2026-07 재조정: "LIVE"라는 단어만 있으니 지금 보이는 화면(정지영상)이 실시간
+      // 재생 중인 것처럼 오해할 수 있다는 피드백을 받음 - 그래서 (1)이미지 좌상단에
+      // "정지영상 · 자동새로고침" 배지를 따로 붙여 지금 보이는 게 정지 사진이라는 걸
+      // 먼저 명시하고, (2)우상단 버튼 문구를 "LIVE" → "🔴 LIVE 보기"로 바꿔 클릭해야
+      // 실시간 화면으로 이동하는 "동작"임을 분명히 함, (3)하단 안내문도 "재생됩니다"
+      // 대신 "정지영상입니다"를 먼저 말하도록 순서를 바꿈.
       var body = '<p style="margin:0 0 10px;color:#888;font-size:12.5px;">' + name + '</p>' +
         '<div style="position:relative;">' +
         '<img id="cctvSnapshotImg" style="width:100%;max-width:480px;aspect-ratio:4/3;' +
         'object-fit:cover;border-radius:8px;background:#eee;display:block;" />' +
+        '<span style="position:absolute;top:8px;left:8px;background:rgba(17,24,39,0.7);' +
+        'color:#fff;font-size:10.5px;padding:4px 9px;border-radius:12px;">📷 정지영상 · 자동새로고침</span>' +
         (streamUrl ? '<a href="' + streamUrl + '" target="_blank" rel="noopener" ' +
           'style="position:absolute;top:8px;right:8px;display:flex;align-items:center;gap:4px;' +
           'background:rgba(17,24,39,0.82);color:#fff;font-size:11.5px;font-weight:bold;' +
-          'padding:6px 11px;border-radius:14px;text-decoration:none;">🔴 LIVE</a>' : '') +
+          'padding:6px 11px;border-radius:14px;text-decoration:none;">🔴 LIVE 보기</a>' : '') +
         '</div>' +
         '<p id="cctvSnapshotErr" style="display:none;margin-top:8px;font-size:12.5px;color:#c0392b;">' +
-        '사진을 불러오지 못했습니다' + (streamUrl ? ' - 우측 상단 LIVE 버튼으로 실시간 영상을 대신 확인해보세요.' : '.') + '</p>' +
-        '<p style="margin:8px 0 0;font-size:11.5px;color:#aaa;">약 20초마다 자동으로 새로고침됩니다' +
-        (streamUrl ? ' · LIVE 버튼을 누르면 실시간 영상이 새 창으로 열립니다' : '') +
+        '사진을 불러오지 못했습니다' + (streamUrl ? ' - 우측 상단 LIVE 보기 버튼으로 실시간 영상을 대신 확인해보세요.' : '.') + '</p>' +
+        '<p style="margin:8px 0 0;font-size:11.5px;color:#aaa;">지금 보이는 화면은 정지영상이며 약 20초마다 자동으로 새로고침됩니다' +
+        (streamUrl ? ' · 실시간으로 보려면 우측 상단의 LIVE 보기 버튼을 눌러 새 창을 열어주세요' : '') +
         '</p>';
       openModal('이곳 날씨도 확인', body, weatherIconSvgDataUrl());
       var img = document.getElementById('cctvSnapshotImg');
@@ -1695,6 +1732,31 @@
     if (cctvImageRefreshTimer) { clearInterval(cctvImageRefreshTimer); cctvImageRefreshTimer = null; }
   }
 
+  // ================================================================
+  // ⚠️ 실시간 인라인 재생 - 현재 비활성 상태로 별도 보관 (ID 74, 2026-07)
+  // 지금은 정지영상(사진)이 기본이고 실시간은 새 창 링크로만 제공되지만, "네이버처럼
+  // 팝업 안에서 바로 재생되게 하는 걸 아예 포기한 건 아닌지" 확인 요청이 있었음 - 포기한
+  // 게 아니라, 이 함수를 그대로 남겨두고 코드에서 분리해서 언제든 다시 켤 수 있게
+  // 관리하는 것임. 아래 함수는 지금 어디서도 호출되지 않음(죽은 코드 아님 - 대기 중).
+  // 켜려면: (1) 실시간 스트림 주소(cctvurl)를 우리 서버(hls-relay.js, 이미 존재하지만
+  // 미사용)를 거치거나 iframe으로 우회해서 CORS/세션 차단 없이 받아올 방법이 확인되어야
+  // 하고, (2) CCTV_LIVE_INLINE_ENABLED를 true로 바꾸고 openCctvPopup 안에서 이미지 대신
+  // (또는 함께) 이 함수를 호출하도록 연결하면 됨. hls.js 라이브러리는 이미 로드되어 있어
+  // 추가 작업 없이 바로 쓸 수 있음.
+  var CCTV_LIVE_INLINE_ENABLED = false;
+  function playCctvLiveInline(streamUrl, videoEl) {
+    stopCctvPlayback();
+    if (videoEl.canPlayType('application/vnd.apple.mpegurl')) {
+      videoEl.src = streamUrl; // 사파리 - <video> 태그가 HLS를 자체 지원
+      videoEl.play().catch(function() {});
+    } else if (window.Hls && Hls.isSupported()) {
+      currentCctvHls = new Hls();
+      currentCctvHls.loadSource(streamUrl);
+      currentCctvHls.attachMedia(videoEl);
+      currentCctvHls.on(Hls.Events.MANIFEST_PARSED, function() { videoEl.play().catch(function() {}); });
+    }
+  }
+
   // iconDataUrl(선택): 제목 앞에 붙일 아이콘 이미지 주소(data: URL). 이모지 문자 대신
   // 이미지를 쓰는 이유는 위 weatherIconSvgDataUrl() 설명 참고 - 기기마다 다르게 보이는
   // 문제를 없애기 위함. title은 항상 텍스트로만 넣음(장소 이름 등 외부/사용자 유래
@@ -1760,15 +1822,12 @@
     cctvHistory.forEach(function(entry) {
       var chip = document.createElement('button');
       chip.className = 'restoreChip';
+      chip.title = entry.name; // 글자 라벨 대신 마우스오버 툴팁으로 - 좁은 칸에 이름이 잘려 보이던 문제 해결
       var thumb = document.createElement('img');
       thumb.src = entry.imageUrl || weatherIconSvgDataUrl();
-      thumb.alt = '';
+      thumb.alt = entry.name;
       thumb.onerror = function() { thumb.src = weatherIconSvgDataUrl(); }; // 사진 로드 실패시 우산 아이콘으로 대체
       chip.appendChild(thumb);
-      var nameSpan = document.createElement('span');
-      nameSpan.className = 'rcName';
-      nameSpan.textContent = entry.name; // textNode 아님 - textContent라 안전(HTML 해석 안 됨)
-      chip.appendChild(nameSpan);
       chip.addEventListener('click', function() {
         bar.classList.remove('show');
         openCctvPopup(entry);
