@@ -215,6 +215,15 @@
     pointer-events: auto;
   }
   #modalContent.dragging { box-shadow: 0 10px 36px rgba(0,0,0,0.4); transition: none; }
+  /* 바텀시트 모드 (ID 67) - 등록폼처럼 "지도·핀 위치가 계속 보여야 하는" 정보창은 화면
+     상단 중앙 카드 대신 하단에서 절반 이하 높이로 뜨는 시트 형태로 표시. openModal의
+     sheetMode 인자로 켜짐(#modal에 sheet 클래스 추가) - 위치·크기만 다르고 나머지
+     동작(닫기/접기 버튼 등)은 기존 정보창과 동일하게 재사용함. */
+  #modal.sheet #modalContent {
+    top: auto; bottom: 0; left: 0; right: 0; transform: none;
+    width: 100%; max-width: 100%; max-height: 50vh;
+    border-radius: 16px 16px 0 0;
+  }
   #modalHeader {
     display: flex; align-items: center; gap: 8px; cursor: move;
     margin: -14px -16px 10px; padding: 10px 12px; border-radius: 12px 12px 0 0;
@@ -282,7 +291,7 @@
   <div class="tagline">혼자 보기 아까운, 지금 그곳의 모습</div>
 </div>
 
-<button id="registerBtn">📍 지금 여기 보여주기</button>
+<button id="registerBtn" title="지도를 길게 눌러도 바로 등록창이 열립니다">📍 지금 여기 보여주기</button>
 <button id="myJourneysBtn">🧭 내 기록 목록</button>
 <button id="recentReportsBtn">🚨 최근 제보</button>
 <button id="nationwideBtn">🌍 전국 CCTV 한눈에</button>
@@ -703,6 +712,22 @@
     kakao.maps.event.addListener(map, 'click', function(mouseEvent) {
       handler({ lat: mouseEvent.latLng.getLat(), lng: mouseEvent.latLng.getLng() });
     });
+  }
+
+  // ID 67(롱프레스 등록) 전용 - 누르기 시작한 지점의 좌표를 얻기 위한 mousedown, 그리고
+  // "누르는 중 지도를 움직였다(=길게 누르기가 아니라 지도 조작 의도)"를 판단하기 위한
+  // dragstart/zoom_start. 카카오 SDK가 터치도 동일한 이벤트명으로 처리해주므로 모바일
+  // 롱프레스에도 그대로 적용됨(실기기 최종 확인은 실사용 단계에서 필요).
+  function mapOnMouseDown(handler) {
+    kakao.maps.event.addListener(map, 'mousedown', function(mouseEvent) {
+      handler({ lat: mouseEvent.latLng.getLat(), lng: mouseEvent.latLng.getLng() });
+    });
+  }
+  function mapOnDragStart(handler) {
+    kakao.maps.event.addListener(map, 'dragstart', handler);
+  }
+  function mapOnZoomStart(handler) {
+    kakao.maps.event.addListener(map, 'zoom_start', handler);
   }
 
   // 지도 이동/확대·축소가 끝나고 멈췄을 때 호출 (드래그 중이 아니라 "정지한 시점"에 한 번만
@@ -1349,6 +1374,43 @@
     document.getElementById('placingBanner').classList.remove('show');
   }
 
+  // ================================================================
+  // 롱프레스로 등록모드 즉시 진입 (ID 67, 2026-07) - 기존 "등록 버튼 클릭 → 지도 클릭"
+  // 2단계 방식과 별개로, 지도를 약간 오래(550ms) 누르고 있으면 그 자리를 바로 등록 위치로
+  // 잡아서 등록폼을 엶. 등록 버튼 방식은 그대로 남겨두고 병행 지원(완료기준 참고).
+  // 누르는 중 지도가 드래그(이동)되거나 확대/축소가 시작되면 "지도 조작 의도"로 보고
+  // 취소함 - 그래야 지도를 움직이려던 손동작이 실수로 등록폼을 열지 않음.
+  // 롱프레스가 성립되면 뒤이어 손을 뗄 때 카카오 SDK가 별개로 'click' 이벤트를 한 번 더
+  // 보내는데(짧은 이동 없는 누름은 click으로도 인식됨), 이걸 그대로 두면 이미 열린
+  // 등록폼이 다시 초기화되며 두 번째로 열려 입력하던 내용이 날아갈 수 있어 suppressNextMapClick
+  // 플래그로 그 뒤따라오는 click 한 번만 무시하도록 처리함.
+  var LONG_PRESS_MS = 550;
+  var longPressTimer = null;
+  var longPressStartLatLng = null;
+  var suppressNextMapClick = false;
+
+  mapOnMouseDown(function(pos) {
+    longPressStartLatLng = pos;
+    if (longPressTimer) clearTimeout(longPressTimer);
+    longPressTimer = setTimeout(function() {
+      longPressTimer = null;
+      if (!longPressStartLatLng) return;
+      suppressNextMapClick = true;
+      if (!placingMode) enterPlacingMode();
+      pendingLatLng = longPressStartLatLng;
+      openRegisterForm();
+      showStatus('📍 길게 누른 위치로 등록창을 열었습니다');
+    }, LONG_PRESS_MS);
+  });
+  mapOnDragStart(function() {
+    if (longPressTimer) { clearTimeout(longPressTimer); longPressTimer = null; }
+    longPressStartLatLng = null;
+  });
+  mapOnZoomStart(function() {
+    if (longPressTimer) { clearTimeout(longPressTimer); longPressTimer = null; }
+    longPressStartLatLng = null;
+  });
+
   // URL을 보고 유튜브인지 인스타그램인지 자동 감지
   function extractContentInfo(url) {
     var yt = url.match(/(?:youtube\.com\/(?:watch\?v=|live\/|embed\/)|youtu\.be\/)([a-zA-Z0-9_-]{11})/);
@@ -1918,6 +1980,8 @@
 
   // 등록모드일 때는 지도를 몇 번을 클릭(줌 조정 후 재클릭 포함)해도 항상 등록창이 뜸
   mapOnClick(function(pos) {
+    if (longPressTimer) { clearTimeout(longPressTimer); longPressTimer = null; } // 짧게 뗀 경우 롱프레스 타이머 취소
+    if (suppressNextMapClick) { suppressNextMapClick = false; return; } // 롱프레스로 이미 처리된 클릭은 무시(ID 67)
     if (!placingMode) return;
     pendingLatLng = pos; // {lat, lng}
     openRegisterForm();
@@ -1970,7 +2034,9 @@
       '<button id="confirmRegisterBtn">등록하기</button>' +
       '<p style="font-size:12px;color:#999;margin-top:10px;">🔴 유튜브 라이브 = 빨간 핀(지금 이 순간) · 🔵 인스타그램 = 파란 핀(그때 그 순간의 기록)<br>등록하시면 모든 방문자에게 공유됩니다.</p>' +
       '<p style="text-align:center;margin-top:10px;"><a href="#" id="cancelRegisterLink" style="color:#999;font-size:13px;">등록 모드 완전히 종료하기</a></p>';
-    openModal('새 스팟 등록', formHtml);
+    // ID67: 바텀시트 모드로 열어서 화면 하단 절반 이하로만 표시 - 위쪽 지도와 방금 지정한
+    // 핀 위치가 폼에 가려지지 않고 계속 보임
+    openModal('새 스팟 등록', formHtml, null, true);
 
     document.querySelectorAll('.catBtn').forEach(function(btn) {
       btn.addEventListener('click', function() {
@@ -2083,7 +2149,9 @@
   // 이미지를 쓰는 이유는 위 weatherIconSvgDataUrl() 설명 참고 - 기기마다 다르게 보이는
   // 문제를 없애기 위함. title은 항상 텍스트로만 넣음(장소 이름 등 외부/사용자 유래
   // 문자열이 섞일 수 있어 HTML로 해석하지 않고 안전하게 처리 - innerHTML 주입 방지).
-  function openModal(title, bodyHtml, iconDataUrl) {
+  // sheetMode=true면 상단 중앙 카드 대신 하단 바텀시트로 표시(ID 67 - 지도·핀 위치가
+  // 계속 보여야 하는 등록폼 등에 사용). 생략하면 기존과 동일하게 기본(상단 카드) 모드.
+  function openModal(title, bodyHtml, iconDataUrl, sheetMode) {
     stopCctvPlayback();
     // 그리드뷰(전국보기·구군검색)가 아닌 다른 정보창을 열 때는 항상 초기화 - 그리드뷰
     // 함수(openNationwideView 등)는 이 호출 직후 자기 자신을 다시 설정함(아래 참고).
@@ -2093,6 +2161,7 @@
     content.style.left = '';
     content.style.top = '';
     content.style.transform = '';
+    document.getElementById('modal').classList.toggle('sheet', !!sheetMode);
     document.getElementById('modal').classList.remove('peek');
     document.getElementById('restoreBar').classList.remove('show');
     var titleEl = document.getElementById('modalTitle');
@@ -2230,8 +2299,13 @@
       content.classList.remove('dragging');
     }
 
+    // 바텀시트 모드(ID 67 등록폼)는 화면 하단에 고정해두는 게 목적이라 드래그로 옮길 수
+    // 있으면 오히려 취지에 어긋남 - sheet 모드일 때는 드래그 시작 자체를 막음.
+    function isSheetMode() { return document.getElementById('modal').classList.contains('sheet'); }
+
     handle.addEventListener('mousedown', function(e) {
       if (e.target.closest('button')) return; // 버튼(닫기·접어두기) 클릭은 드래그로 처리하지 않음
+      if (isSheetMode()) return;
       startDrag(e.clientX, e.clientY);
       e.preventDefault();
     });
@@ -2244,6 +2318,7 @@
 
     handle.addEventListener('touchstart', function(e) {
       if (e.target.closest('button')) return;
+      if (isSheetMode()) return;
       var t = e.touches[0];
       startDrag(t.clientX, t.clientY);
     }, { passive: true });
