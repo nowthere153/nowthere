@@ -97,6 +97,31 @@
     box-shadow: 0 2px 8px rgba(0,0,0,0.15);
   }
 
+  /* 전국보기(ID73 구체화) - 로그인 없이 누구나 쓰는 공개 기능이라 다른 상단 버튼들과
+     같은 줄에 항상 노출(CCTV 토글처럼 관리자 설정에 따라 숨겨지지 않음) */
+  #nationwideBtn {
+    position: absolute; top: 148px; right: 16px; z-index: 12;
+    background: white; color: #2563eb; border: 1px solid #ddd; padding: 8px 12px;
+    border-radius: 16px; font-size: 12.5px; font-weight: 600; cursor: pointer;
+    box-shadow: 0 2px 8px rgba(0,0,0,0.15);
+  }
+  #nationwideGrid {
+    display: grid; grid-template-columns: repeat(auto-fill, minmax(120px, 1fr)); gap: 10px;
+  }
+  .nwCard {
+    position: relative; aspect-ratio: 4/3; border-radius: 8px; overflow: hidden;
+    background: #eee; cursor: pointer;
+  }
+  .nwCard img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; }
+  .nwCard .nwSpinner {
+    position: absolute; inset: 0; display: flex; align-items: center; justify-content: center;
+    font-size: 11px; color: #999; text-align: center; padding: 6px;
+  }
+  .nwCard .nwLabel {
+    position: absolute; bottom: 0; left: 0; right: 0; background: rgba(17,24,39,0.72);
+    color: #fff; font-size: 11.5px; font-weight: 600; padding: 4px 8px;
+  }
+
   #placingBanner {
     display: none; position: absolute; bottom: 16px; left: 50%; transform: translateX(-50%);
     z-index: 13; background: #111827; color: white; padding: 10px 18px; border-radius: 20px;
@@ -145,6 +170,7 @@
     #registerBtn { top: 12px; right: 10px; font-size: 12px; padding: 8px 11px; }
     #myJourneysBtn { top: 50px; right: 10px; font-size: 11.5px; padding: 7px 10px; }
     #recentReportsBtn { top: 90px; right: 10px; font-size: 11.5px; padding: 7px 10px; }
+    #nationwideBtn { top: 130px; right: 10px; font-size: 11.5px; padding: 7px 10px; }
     #locateBtn { right: 10px; width: 40px; height: 40px; font-size: 17px; }
     #zoomInBtn, #zoomOutBtn { right: 12px; width: 36px; height: 36px; font-size: 17px; }
     #zoomInBtn { bottom: 178px; }
@@ -251,6 +277,7 @@
 <button id="registerBtn">📍 지금 여기 보여주기</button>
 <button id="myJourneysBtn">🧭 내 기록 목록</button>
 <button id="recentReportsBtn">🚨 최근 제보</button>
+<button id="nationwideBtn">🌍 전국보기</button>
 <button id="locateBtn" title="현위치">🎯</button>
 <button id="zoomInBtn" title="확대">+</button>
 <button id="zoomOutBtn" title="축소">−</button>
@@ -1567,6 +1594,91 @@
       clearCctvMarkers();
     }
   });
+
+  // ================================================================
+  // 전국보기 (ID73 구체화, 2026-07) - 로그인 없이 누구나 쓰는 공개 기능. 주요 도시
+  // 대표지점 근처 CCTV를 모음이미지로 보여줘서 "거기 비 와?"를 지도 조작 없이 한눈에
+  // 확인할 수 있게 함. 지점 목록은 우선 사용자가 예시로 든 5개 도시(시청 부근)로 시작 -
+  // 나중에 반응 보고 도시를 더 추가하거나 관리자가 조정 가능한 구조로 발전시킬 수 있음.
+  // ================================================================
+  var NATIONWIDE_CITIES = [
+    { name: '서울', lat: 37.5665, lng: 126.9780 },
+    { name: '대전', lat: 36.3504, lng: 127.3845 },
+    { name: '대구', lat: 35.8714, lng: 128.6014 },
+    { name: '광주', lat: 35.1601, lng: 126.8517 },
+    { name: '부산', lat: 35.1796, lng: 129.0756 }
+  ];
+
+  // 정확한 km 거리가 아니라 "여러 후보 중 어느 게 더 가까운지" 순위만 필요해서 위도/경도
+  // 차이로 근사 비교함(위도 1도≈111km로 거의 일정하지만 경도는 위도에 따라 폭이 줄어듦 -
+  // 우리나라 위도 범위(33~39도)에서는 이 단순 근사로도 순위가 실제 거리와 크게 다르지 않음).
+  function approxDegDistance(lat1, lng1, lat2, lng2) {
+    var dLat = lat1 - lat2, dLng = lng1 - lng2;
+    return Math.sqrt(dLat * dLat + dLng * dLng);
+  }
+
+  // 지정한 좌표 근처에서 가장 가까운 CCTV 1개를 찾음. ID73 설계 원칙과 동일하게, 좁은
+  // 반경에서 못 찾으면 단계적으로 반경을 넓혀가며 재시도(fetchCctvList의 그리드+캐시를
+  // 그대로 재사용하므로 이미 조회한 지역은 새 API 호출 없이 캐시로 처리됨).
+  function findNearestCctv(lat, lng, callback) {
+    var radii = [0.03, 0.08, 0.2]; // 약 3km, 8km, 20km
+    var i = 0;
+    function tryNext() {
+      if (i >= radii.length) { callback(null); return; }
+      var r = radii[i++];
+      fetchCctvList({ minX: lng - r, maxX: lng + r, minY: lat - r, maxY: lat + r }, function(result) {
+        if (!result.ok || !result.list || result.list.length === 0) { tryNext(); return; }
+        var best = null, bestDist = Infinity;
+        result.list.forEach(function(item) {
+          var ilat = parseFloat(item.coordy), ilng = parseFloat(item.coordx);
+          if (isNaN(ilat) || isNaN(ilng)) return;
+          var d = approxDegDistance(lat, lng, ilat, ilng);
+          if (d < bestDist) { bestDist = d; best = item; }
+        });
+        if (best) callback(best); else tryNext();
+      });
+    }
+    tryNext();
+  }
+
+  function openNationwideView() {
+    var body = '<p style="margin:0 0 10px;color:#888;font-size:12.5px;">주요 도시 근처 CCTV로 지금 날씨를 한눈에 확인해보세요</p>' +
+      '<div id="nationwideGrid"></div>';
+    openModal('🌍 전국 날씨 한눈에 보기', body, weatherIconSvgDataUrl());
+    var grid = document.getElementById('nationwideGrid');
+    NATIONWIDE_CITIES.forEach(function(city) {
+      var card = document.createElement('div');
+      card.className = 'nwCard';
+      card.innerHTML = '<div class="nwSpinner">불러오는 중…</div><span class="nwLabel">' + city.name + '</span>';
+      grid.appendChild(card);
+      findNearestCctv(city.lat, city.lng, function(item) {
+        var spinner = card.querySelector('.nwSpinner');
+        if (!item) {
+          if (spinner) spinner.textContent = '근처 CCTV 없음';
+          return;
+        }
+        var imageUrl = item.imageUrl || '';
+        var streamUrl = item.cctvurl || '';
+        var name = item.cctvname || city.name;
+        var ilat = parseFloat(item.coordy), ilng = parseFloat(item.coordx);
+        if (imageUrl) {
+          var img = document.createElement('img');
+          img.alt = city.name;
+          img.onload = function() { if (spinner) spinner.remove(); };
+          img.onerror = function() { if (spinner) spinner.textContent = '이미지를 불러오지 못했습니다'; };
+          img.src = imageUrl;
+          card.insertBefore(img, card.firstChild);
+        } else if (spinner) {
+          spinner.textContent = '이미지 없음';
+        }
+        card.addEventListener('click', function() {
+          openCctvPopup({ name: city.name + ' · ' + name, lat: ilat, lng: ilng, imageUrl: imageUrl, streamUrl: streamUrl });
+        });
+      });
+    });
+  }
+
+  document.getElementById('nationwideBtn').addEventListener('click', openNationwideView);
 
   // 지도를 축소/이동해도 CCTV가 처음 켰을 때 보이던 지역에만 그대로 남아있던 문제 수정:
   // CCTV 레이어가 켜져 있는 동안은 지도 이동/확대·축소가 멈출 때마다 현재 보이는 범위로
