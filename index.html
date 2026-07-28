@@ -544,6 +544,26 @@
     return { minX: sw.getLng(), maxX: ne.getLng(), minY: sw.getLat(), maxY: ne.getLat() };
   }
 
+  // ⚠️ 2026-07: "전국보기"를 눌러도 배경 지도는 그대로라 화면이 정적으로 느껴진다는
+  // 피드백을 받음 - 그리드뷰(모달)를 열기 직전에 배경 지도도 points가 모두 보이는
+  // 넓은 범위로 부드럽게 이동·축소시켜서 "전국을 보러 간다"는 느낌을 주기 위해 추가.
+  // 카카오맵 setBounds는 애니메이션을 지원하지 않아 순간이동처럼 보이므로, 대신
+  // panTo(부드러운 이동, SDK 기본 동작)로 points의 중심으로 이동하고, 곧이어
+  // setLevel을 animate 옵션과 함께 호출해 축소도 부드럽게 처리함. level을 안 넘기면
+  // points 범위에 딱 맞는 배율을 setBounds로 정확히 계산해서 씀(애니메이션은 없음).
+  function mapFlyToPoints(points, level) {
+    var bounds = new kakao.maps.LatLngBounds();
+    points.forEach(function(p) { bounds.extend(mapLatLng(p.lat, p.lng)); });
+    var sw = bounds.getSouthWest(), ne = bounds.getNorthEast();
+    var center = mapLatLng((sw.getLat() + ne.getLat()) / 2, (sw.getLng() + ne.getLng()) / 2);
+    map.panTo(center);
+    if (level) {
+      map.setLevel(level, { animate: { duration: 700 } });
+    } else {
+      map.setBounds(bounds);
+    }
+  }
+
   // 핀 SVG 아이콘 생성 (color 파라미터로 빨강/파랑 구분) - 어댑터 내부에서만 사용
   function pinImage(hexColor) {
     var svg = '<svg xmlns="http://www.w3.org/2000/svg" width="28" height="36" viewBox="0 0 28 36">' +
@@ -1735,6 +1755,10 @@
   }
 
   function openNationwideView() {
+    // 모달을 열기 직전에 배경 지도를 전국이 보이는 범위로 부드럽게 이동·축소 - level 13은
+    // 대한민국 전역이 대략 한 화면에 들어오는 배율로 우선 고정값을 씀(화면 크기에 따라
+    // 살짝 넘치거나 남을 수 있음 - 실사용 화면에서 보고 조정 예정).
+    mapFlyToPoints(NATIONWIDE_CITIES.map(function(c) { return { lat: c.lat, lng: c.lng }; }), 13);
     var body = '<p style="margin:0 0 10px;color:#888;font-size:12.5px;">주요 도시 근처 CCTV로 지금 날씨를 한눈에 확인해보세요</p>' +
       '<div id="nationwideGrid" class="nwGrid"></div>';
     openModal('🌍 전국 CCTV 한눈에 보기', body, weatherIconSvgDataUrl());
