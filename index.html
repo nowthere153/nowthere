@@ -714,15 +714,51 @@
     });
   }
 
-  // ID 67(롱프레스 등록) 전용 - 누르기 시작한 지점의 좌표를 얻기 위한 mousedown, 그리고
-  // "누르는 중 지도를 움직였다(=길게 누르기가 아니라 지도 조작 의도)"를 판단하기 위한
-  // dragstart/zoom_start. 카카오 SDK가 터치도 동일한 이벤트명으로 처리해주므로 모바일
-  // 롱프레스에도 그대로 적용됨(실기기 최종 확인은 실사용 단계에서 필요).
-  function mapOnMouseDown(handler) {
-    kakao.maps.event.addListener(map, 'mousedown', function(mouseEvent) {
-      handler({ lat: mouseEvent.latLng.getLat(), lng: mouseEvent.latLng.getLng() });
-    });
+  // ID 67(롱프레스 등록) 전용 좌표/제스처 감지
+  // ⚠️ 2026-07 수정: 처음엔 카카오 SDK의 kakao.maps.event.addListener(map,'mousedown',...)로
+  // 누르기 시작 좌표를 얻었는데, 실사용(모바일) 결과 전혀 동작하지 않는 문제가 발견됨.
+  // 확인해보니 카카오 개발자 포럼에 "카카오맵 API는 모바일 touchstart 이벤트를 지원하지
+  // 않으며, mousedown addListener도 데스크톱 마우스에서만 발생하고 터치에는 대응하지
+  // 않는다 - 터치 대응이 필요하면 지도 DOM 요소에 직접 이벤트를 붙이라"는 공식 답변이
+  // 있었음(devtalk.kakao.com/t/map-api-mobile-touchstart). 그래서 카카오 SDK를 거치지
+  // 않고, 지도 DOM 요소(mapContainer)에 mousedown/touchstart를 직접 붙이고, 픽셀 좌표를
+  // 위경도로 변환할 때만 카카오 공식 API인 map.getProjection().coordsFromContainerPoint()를
+  // 사용하는 방식으로 교체함(카카오 공식 예제 "커스텀오버레이 드래그"에서 쓰는 방식과 동일).
+  function mapContainerPixelToLatLng(clientX, clientY) {
+    var rect = mapContainer.getBoundingClientRect();
+    var point = new kakao.maps.Point(clientX - rect.left, clientY - rect.top);
+    var latlng = map.getProjection().coordsFromContainerPoint(point);
+    return { lat: latlng.getLat(), lng: latlng.getLng() };
   }
+  // 누르기 시작(데스크톱 mousedown + 모바일 touchstart 둘 다 같은 핸들러로 처리)
+  function mapOnPressStart(handler) {
+    mapContainer.addEventListener('mousedown', function(e) {
+      handler(mapContainerPixelToLatLng(e.clientX, e.clientY), e.clientX, e.clientY);
+    });
+    mapContainer.addEventListener('touchstart', function(e) {
+      var t = e.touches && e.touches[0];
+      if (!t) return;
+      handler(mapContainerPixelToLatLng(t.clientX, t.clientY), t.clientX, t.clientY);
+    }, { passive: true });
+  }
+  // 누르는 중 이동(지도를 옮기려는 손동작인지 판단용) - 화면 절대좌표(x,y)만 전달
+  function mapOnPressMove(handler) {
+    document.addEventListener('mousemove', function(e) { handler(e.clientX, e.clientY); });
+    document.addEventListener('touchmove', function(e) {
+      var t = e.touches && e.touches[0];
+      if (t) handler(t.clientX, t.clientY);
+    }, { passive: true });
+  }
+  // 손을 뗐거나(mouseup/touchend) 제스처가 취소된 경우(touchcancel)
+  function mapOnPressEnd(handler) {
+    document.addEventListener('mouseup', handler);
+    document.addEventListener('touchend', handler);
+    document.addEventListener('touchcancel', handler);
+  }
+  // 지도 자체가 실제로 이동/확대축소를 시작한 경우 - 위 mapOnPressMove의 픽셀 이동거리
+  // 판정과 별개로 카카오 SDK가 인식한 제스처 기준으로도 한 번 더 취소(이중 안전장치).
+  // dragstart/zoom_start는 지도 팬·핀치줌의 핵심 동작이라 모바일에서도 정상 동작함
+  // (mousedown과 달리 카카오 SDK 자체 기능이 이 이벤트에 의존하므로 터치 미지원일 수 없음).
   function mapOnDragStart(handler) {
     kakao.maps.event.addListener(map, 'dragstart', handler);
   }
@@ -1375,22 +1411,26 @@
   }
 
   // ================================================================
-  // 롱프레스로 등록모드 즉시 진입 (ID 67, 2026-07) - 기존 "등록 버튼 클릭 → 지도 클릭"
-  // 2단계 방식과 별개로, 지도를 약간 오래(550ms) 누르고 있으면 그 자리를 바로 등록 위치로
-  // 잡아서 등록폼을 엶. 등록 버튼 방식은 그대로 남겨두고 병행 지원(완료기준 참고).
-  // 누르는 중 지도가 드래그(이동)되거나 확대/축소가 시작되면 "지도 조작 의도"로 보고
-  // 취소함 - 그래야 지도를 움직이려던 손동작이 실수로 등록폼을 열지 않음.
+  // 롱프레스로 등록모드 즉시 진입 (ID 67, 2026-07 / 2026-07-28 모바일 수정) - 기존
+  // "등록 버튼 클릭 → 지도 클릭" 2단계 방식과 별개로, 지도를 약간 오래(550ms) 누르고
+  // 있으면 그 자리를 바로 등록 위치로 잡아서 등록폼을 엶. 등록 버튼 방식은 그대로
+  // 남겨두고 병행 지원(완료기준 참고).
+  // 누르는 중 일정 거리(12px) 이상 움직이거나(지도를 옮기려는 손동작), 카카오 SDK가
+  // 실제 드래그/확대축소를 인식하면 "지도 조작 의도"로 보고 취소함.
   // 롱프레스가 성립되면 뒤이어 손을 뗄 때 카카오 SDK가 별개로 'click' 이벤트를 한 번 더
   // 보내는데(짧은 이동 없는 누름은 click으로도 인식됨), 이걸 그대로 두면 이미 열린
   // 등록폼이 다시 초기화되며 두 번째로 열려 입력하던 내용이 날아갈 수 있어 suppressNextMapClick
   // 플래그로 그 뒤따라오는 click 한 번만 무시하도록 처리함.
   var LONG_PRESS_MS = 550;
+  var LONG_PRESS_MOVE_TOLERANCE_PX = 12;
   var longPressTimer = null;
   var longPressStartLatLng = null;
+  var longPressStartXY = null;
   var suppressNextMapClick = false;
 
-  mapOnMouseDown(function(pos) {
+  mapOnPressStart(function(pos, x, y) {
     longPressStartLatLng = pos;
+    longPressStartXY = { x: x, y: y };
     if (longPressTimer) clearTimeout(longPressTimer);
     longPressTimer = setTimeout(function() {
       longPressTimer = null;
@@ -1401,6 +1441,16 @@
       openRegisterForm();
       showStatus('📍 길게 누른 위치로 등록창을 열었습니다');
     }, LONG_PRESS_MS);
+  });
+  mapOnPressMove(function(x, y) {
+    if (!longPressTimer || !longPressStartXY) return;
+    var dx = x - longPressStartXY.x, dy = y - longPressStartXY.y;
+    if (Math.sqrt(dx * dx + dy * dy) > LONG_PRESS_MOVE_TOLERANCE_PX) {
+      clearTimeout(longPressTimer); longPressTimer = null; longPressStartLatLng = null;
+    }
+  });
+  mapOnPressEnd(function() {
+    if (longPressTimer) { clearTimeout(longPressTimer); longPressTimer = null; }
   });
   mapOnDragStart(function() {
     if (longPressTimer) { clearTimeout(longPressTimer); longPressTimer = null; }
