@@ -1721,11 +1721,24 @@
       var stillBadge = document.getElementById('cctvStillBadge');
       var caption = document.getElementById('cctvCaption');
       var liveBtn = document.getElementById('cctvLiveBtn');
+      var imageLoadedOnce = false; // 정지영상이 한 번이라도 성공적으로 떴는지 - 실시간 실패 시 되돌아갈 수 있는지 판단용
+      img.onload = function() { imageLoadedOnce = true; };
+
+      // ⚠️ 2026-07-29: 경기 GITS 연동 후 일부 카메라(주로 cctvsec.ktict.co.kr 호스트)의
+      // 정지영상이 401(Unauthorized)로 막혀 있는 사례가 실사용에서 발견됨(ITS 자체
+      // 정지영상은 계속 토큰 없이 정상 동작 - 이 문제는 GG 소스 일부 카메라에 한정).
+      // 예전에는 사진이 실패하면 에러 메시지만 띄우고 사용자가 직접 LIVE 버튼을
+      // 눌러야 했는데, 이제는 사진이 실패하면 자동으로 실시간 영상으로 전환을
+      // 시도해서 사용자가 추가로 클릭할 필요가 없도록 함.
       img.onerror = function() {
         img.style.display = 'none';
-        errMsg.style.display = 'block';
-        errMsg.textContent = '사진을 불러오지 못했습니다' + (streamUrl ? ' - 우측 상단 LIVE 보기 버튼으로 실시간 영상을 대신 확인해보세요.' : '.');
         if (cctvImageRefreshTimer) { clearInterval(cctvImageRefreshTimer); cctvImageRefreshTimer = null; }
+        if (streamUrl) {
+          switchToLive();
+        } else {
+          errMsg.style.display = 'block';
+          errMsg.textContent = '사진을 불러오지 못했습니다.';
+        }
       };
       function refreshSnapshot() {
         var el = document.getElementById('cctvSnapshotImg');
@@ -1734,28 +1747,46 @@
       }
       refreshSnapshot();
       cctvImageRefreshTimer = setInterval(refreshSnapshot, 20000);
-      if (liveBtn && streamUrl) {
-        liveBtn.addEventListener('click', function() {
-          if (cctvImageRefreshTimer) { clearInterval(cctvImageRefreshTimer); cctvImageRefreshTimer = null; }
-          img.style.display = 'none';
-          stillBadge.style.display = 'none';
-          errMsg.style.display = 'none';
+
+      // ⚠️ 2026-07-29: 경기 GITS 일부 카메라의 liveUrl은 hls.js로도 재생이 안 되는
+      // 경우가 발견됨(예: gitsview.gg.go.kr:8082의 wmsAuthSign 토큰 방식 - ITS/KTICT
+      // 계열과 다른 별도 스트리밍 서버로 추정). 예전에는 인라인 재생 실패 시 무조건
+      // window.open(streamUrl)로 새 창을 열었는데, .m3u8 주소 자체는 브라우저가
+      // 재생할 수 있는 페이지가 아니라 그냥 원본 URL 텍스트만 보이는 무의미한 새 창이
+      // 열리는 문제가 있었음(사용자 실사용으로 확인됨). 이제는 새 창을 자동으로 열지
+      // 않고, 정지영상이 있었다면 그쪽으로 되돌아가고(realtime 실패 안내 포함),
+      // 정지영상도 없었다면 "이 카메라는 지금 영상을 볼 수 없다"는 명확한 안내와 함께
+      // 원하는 사람만 눌러볼 수 있는 링크만 남겨둠(자동 새 창 없음).
+      function showLiveFailure() {
+        video.style.display = 'none';
+        errMsg.style.display = 'block';
+        if (imageLoadedOnce) {
+          img.style.display = 'block';
+          stillBadge.style.display = '';
+          liveBtn.style.display = '';
+          errMsg.textContent = '실시간 재생에 실패해 정지영상으로 되돌아갑니다.';
+          caption.textContent = '지금 보이는 화면은 정지영상이며 약 20초마다 자동으로 새로고침됩니다';
+          refreshSnapshot();
+          cctvImageRefreshTimer = setInterval(refreshSnapshot, 20000);
+        } else {
           liveBtn.style.display = 'none';
-          video.style.display = 'block';
-          caption.innerHTML = '🔴 실시간 영상입니다 (연결 상태에 따라 화질/속도가 달라질 수 있습니다) · ' +
-            '<a href="' + streamUrl + '" target="_blank" rel="noopener" style="color:#4a90d9;">새 창에서 크게 보기</a>';
-          playCctvLiveInline(streamUrl, video, function() {
-            // 인라인 재생 실패 - 정지영상+새 창 링크 방식으로 되돌림
-            video.style.display = 'none';
-            img.style.display = 'block';
-            stillBadge.style.display = '';
-            liveBtn.style.display = '';
-            caption.textContent = '지금 보이는 화면은 정지영상이며 약 20초마다 자동으로 새로고침됩니다 · 실시간 재생에 실패해 새 창으로 열어드립니다';
-            refreshSnapshot();
-            cctvImageRefreshTimer = setInterval(refreshSnapshot, 20000);
-            window.open(streamUrl, '_blank');
-          });
-        });
+          errMsg.textContent = '이 카메라는 사진과 실시간 영상 모두 지금 불러올 수 없습니다 - 카메라 제공사 사정으로 추정됩니다.';
+          caption.innerHTML = '<a href="' + streamUrl + '" target="_blank" rel="noopener" style="color:#4a90d9;">그래도 원본 주소 열어보기(재생 안 될 수 있음)</a>';
+        }
+      }
+      function switchToLive() {
+        if (cctvImageRefreshTimer) { clearInterval(cctvImageRefreshTimer); cctvImageRefreshTimer = null; }
+        img.style.display = 'none';
+        stillBadge.style.display = 'none';
+        errMsg.style.display = 'none';
+        liveBtn.style.display = 'none';
+        video.style.display = 'block';
+        caption.innerHTML = '🔴 실시간 영상입니다 (연결 상태에 따라 화질/속도가 달라질 수 있습니다) · ' +
+          '<a href="' + streamUrl + '" target="_blank" rel="noopener" style="color:#4a90d9;">새 창에서 크게 보기</a>';
+        playCctvLiveInline(streamUrl, video, showLiveFailure);
+      }
+      if (liveBtn && streamUrl) {
+        liveBtn.addEventListener('click', switchToLive);
       }
     } else {
       // 사진 주소를 못 받아온 극히 일부 카메라 - 실시간 영상 새 창으로 폴백
