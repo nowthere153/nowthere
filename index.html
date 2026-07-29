@@ -458,6 +458,28 @@
     });
   }
 
+  // ITS와 경기(GITS) 두 소스를 합칠 때는 URL 문자열이 아니라 좌표로 중복을 걸러야 함 -
+  // 같은 물리적 카메라라도 소스마다 영상 주소 형식/호스트가 다를 수 있기 때문(2026-07,
+  // 경기도 GITS 연동 시 한국도로공사 카메라 등 ITS와 겹칠 수 있는 항목이 실제로 존재함을
+  // 확인). 소수점 4자리(약 10m 단위)로 좌표를 반올림 - 소스마다 좌표 정밀도가 조금씩
+  // 달라 5자리보다 살짝 느슨하게 잡음. 좌표가 없는 항목은 걸러지지 않고 그대로 통과시킴
+  // (아예 안 보이게 하는 것보다 중복 위험을 감수하는 쪽이 낫다고 판단).
+  function coordDedupeKey(item) {
+    var x = parseFloat(item.coordx), y = parseFloat(item.coordy);
+    if (isNaN(x) || isNaN(y)) return null;
+    return x.toFixed(4) + ',' + y.toFixed(4);
+  }
+  function dedupeCctvItemsAcrossSources(items) {
+    var seen = {};
+    return items.filter(function(item) {
+      var k = coordDedupeKey(item);
+      if (!k) return true;
+      if (seen[k]) return false;
+      seen[k] = true;
+      return true;
+    });
+  }
+
   // bounds: {minX, maxX, minY, maxY} (경도/위도 범위, 보통 mapGetBounds() 결과) /
   // callback({ok, list, error}). 응답을 표준 형태({ok, list})로 감싸서 넘기므로, 나중에
   // 이 함수 내부를 프록시 호출로 바꾸더라도 호출하는 쪽(loadCctvMarkers 등)은 그대로 둬도 됩니다.
@@ -471,21 +493,50 @@
     }
 
     if (CCTV_PROXY_BASE_URL) {
-      // 프록시(서버)가 배포되어 있으면 단일 호출로 끝남 - 서버(traffic-proxy.js)가
-      // ex/its 두 카테고리를 이미 합쳐서 돌려주기 때문에 브라우저에서 두 번 호출할
-      // 필요가 없고, ITS 인증키도 서버에만 있어 브라우저 소스에 노출되지 않음
-      var proxyUrl = CCTV_PROXY_BASE_URL + '/api/its-cctv?minX=' + gridBounds.minX +
+      // 프록시(서버)가 배포되어 있으면 ITS(전국 고속도로/국도)와 경기·서울권 GITS(도심,
+      // 영상 포함, 2026-07 연동)를 함께 호출해서 합침. GG는 보조 소스라 실패해도(예:
+      // 서버에 GG_API_KEY가 아직 설정 안 됐거나 일시 오류) ITS 결과만으로 계속 진행함 -
+      // ITS 인증키/GG 서비스키 둘 다 서버에만 있어 브라우저 소스에 노출되지 않음.
+      var itsProxyUrl = CCTV_PROXY_BASE_URL + '/api/its-cctv?minX=' + gridBounds.minX +
         '&maxX=' + gridBounds.maxX + '&minY=' + gridBounds.minY + '&maxY=' + gridBounds.maxY;
-      fetch(proxyUrl).then(function(res) {
+      var ggProxyUrl = CCTV_PROXY_BASE_URL + '/api/gg-cctv?minX=' + gridBounds.minX +
+        '&maxX=' + gridBounds.maxX + '&minY=' + gridBounds.minY + '&maxY=' + gridBounds.maxY;
+
+      var itsOutcome = null; // { ok: true, list: [...] } 또는 { ok: false, error }
+      var ggList = null; // 항상 배열로 확정(실패 시 빈 배열)
+      function tryFinishProxy() {
+        if (itsOutcome === null || ggList === null) return; // 둘 다 도착할 때까지 대기
+        if (!itsOutcome.ok) {
+          console.error('[CCTV] ITS 프록시 호출 실패:', itsOutcome.error);
+          callback({ ok: false, error: itsOutcome.error });
+          return;
+        }
+        var list = dedupeCctvItemsAcrossSources(dedupeCctvItems(itsOutcome.list.concat(ggList)));
+        cctvClientCache[key] = { list: list, time: Date.now() };
+        callback({ ok: true, list: list });
+      }
+
+      fetch(itsProxyUrl).then(function(res) {
         if (!res.ok) throw new Error('HTTP ' + res.status);
         return res.json();
       }).then(function(data) {
-        var list = dedupeCctvItems(extractCctvItems(data));
-        cctvClientCache[key] = { list: list, time: Date.now() };
-        callback({ ok: true, list: list });
+        itsOutcome = { ok: true, list: extractCctvItems(data) };
+        tryFinishProxy();
       }).catch(function(err) {
-        console.error('[CCTV] 프록시 호출 실패:', err);
-        callback({ ok: false, error: err });
+        itsOutcome = { ok: false, error: err };
+        tryFinishProxy();
+      });
+
+      fetch(ggProxyUrl).then(function(res) {
+        if (!res.ok) throw new Error('HTTP ' + res.status);
+        return res.json();
+      }).then(function(data) {
+        ggList = extractCctvItems(data);
+        tryFinishProxy();
+      }).catch(function(err) {
+        console.error('[CCTV] 경기(GITS) 프록시 호출 실패(보조 소스라 ITS만으로 계속 진행):', err);
+        ggList = [];
+        tryFinishProxy();
       });
       return;
     }
@@ -1596,7 +1647,7 @@
       });
     }
     fillPass(list.filter(function(item) { return item.roadType === 'ex'; }));  // 1차: 고속도로부터
-    fillPass(list.filter(function(item) { return item.roadType !== 'ex'; }));  // 2차: 남은 빈 칸을 국도로
+    fillPass(list.filter(function(item) { return item.roadType !== 'ex'; }));  // 2차: 남은 빈 칸을 국도/경기(gg) 등으로
     return out;
   }
 
