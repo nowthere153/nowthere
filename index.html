@@ -225,10 +225,19 @@
      상단 중앙 카드 대신 하단에서 절반 이하 높이로 뜨는 시트 형태로 표시. openModal의
      sheetMode 인자로 켜짐(#modal에 sheet 클래스 추가) - 위치·크기만 다르고 나머지
      동작(닫기/접기 버튼 등)은 기존 정보창과 동일하게 재사용함. */
-  #modal.sheet #modalContent {
-    top: auto; bottom: 0; left: 0; right: 0; transform: none;
-    width: 100%; max-width: 100%; max-height: 50vh;
-    border-radius: 16px 16px 0 0;
+  /* ⚠️ 2026-07-29: PC(넓은 화면)에서는 바텀시트가 화면 가로 전체를 차지해 답답하고
+     "팝업이 아니라 화면 하단 40%를 잡아먹는 판"처럼 보인다는 피드백을 받음. 반면
+     모바일에서는 입력창(키보드)과 가까운 하단 시트가 오히려 부담이 적다는 의견도
+     함께 주셔서, 이 바텀시트 스타일 자체는 모바일 화면 폭(480px 이하 - 이 파일의
+     다른 반응형 기준과 동일)에서만 적용하고, PC에서는 이 규칙이 아예 안 걸려서
+     위 기본 #modalContent 규칙(중앙에 뜨는 일반 팝업 카드, 최대 640px)을 그대로
+     쓰게 됨. */
+  @media (max-width: 480px) {
+    #modal.sheet #modalContent {
+      top: auto; bottom: 0; left: 0; right: 0; transform: none;
+      width: 100%; max-width: 100%; max-height: 50vh;
+      border-radius: 16px 16px 0 0;
+    }
   }
   #modalHeader {
     display: flex; align-items: center; gap: 8px; cursor: move;
@@ -1503,9 +1512,19 @@
       // 일회성 동작이지 등록모드 자체를 켜는 것과는 다르므로, placingMode는 건드리지
       // 않고 pendingLatLng만 지정해서 등록폼을 엶(placingBanner도 뜨지 않음 - 이미
       // 위치를 지정한 뒤라 "지도를 클릭해서 위치를 지정하라"는 안내가 맞지 않기 때문).
-      pendingLatLng = longPressStartLatLng;
-      openRegisterForm();
-      showStatus('📍 길게 누른 위치로 등록창을 열었습니다');
+      var confirmedLatLng = longPressStartLatLng;
+      // ⚠️ 2026-07-29: PC에서 롱프레스 중에는 카카오맵 기본 드래그 커서(주먹 쥔 손)가
+      // 계속 보이다가, 등록창이 곧바로 뜨면 "방금 그게 확정된 거 맞나?" 싶은 순간이
+      // 있다는 피드백을 받음. 등록창을 열기 직전 잠깐(180ms) 커서를 기본 화살표로
+      // 바꿔 "여기가 확정된 지점입니다"라는 시각적 확인을 준 다음 폼을 엶(모바일은
+      // 커서 개념이 없어 이 변경이 아무 영향도 주지 않음 - 무해).
+      mapContainer.style.cursor = 'default';
+      setTimeout(function() {
+        mapContainer.style.cursor = '';
+        pendingLatLng = confirmedLatLng;
+        openRegisterForm();
+        showStatus('📍 길게 누른 위치로 등록창을 열었습니다');
+      }, 180);
     }, LONG_PRESS_MS);
   });
   mapOnPressMove(function(x, y) {
