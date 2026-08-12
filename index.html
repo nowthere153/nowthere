@@ -506,21 +506,29 @@
       // 영상 포함, 2026-07 연동)를 함께 호출해서 합침. GG는 보조 소스라 실패해도(예:
       // 서버에 GG_API_KEY가 아직 설정 안 됐거나 일시 오류) ITS 결과만으로 계속 진행함 -
       // ITS 인증키/GG 서비스키 둘 다 서버에만 있어 브라우저 소스에 노출되지 않음.
-      var itsProxyUrl = CCTV_PROXY_BASE_URL + '/api/its-cctv?minX=' + gridBounds.minX +
-        '&maxX=' + gridBounds.maxX + '&minY=' + gridBounds.minY + '&maxY=' + gridBounds.maxY;
-      var ggProxyUrl = CCTV_PROXY_BASE_URL + '/api/gg-cctv?minX=' + gridBounds.minX +
-        '&maxX=' + gridBounds.maxX + '&minY=' + gridBounds.minY + '&maxY=' + gridBounds.maxY;
+      var bboxQuery = '?minX=' + gridBounds.minX + '&maxX=' + gridBounds.maxX +
+        '&minY=' + gridBounds.minY + '&maxY=' + gridBounds.maxY;
+      var itsProxyUrl = CCTV_PROXY_BASE_URL + '/api/its-cctv' + bboxQuery;
+      var ggProxyUrl = CCTV_PROXY_BASE_URL + '/api/gg-cctv' + bboxQuery;
+      var uticProxyUrl = CCTV_PROXY_BASE_URL + '/api/utic-snapshot-list' + bboxQuery;
 
       var itsOutcome = null; // { ok: true, list: [...] } 또는 { ok: false, error }
       var ggList = null; // 항상 배열로 확정(실패 시 빈 배열)
+      var uticList = null; // 항상 배열로 확정(실패 시 빈 배열)
       function tryFinishProxy() {
-        if (itsOutcome === null || ggList === null) return; // 둘 다 도착할 때까지 대기
+        if (itsOutcome === null || ggList === null || uticList === null) return; // 셋 다 도착할 때까지 대기
         if (!itsOutcome.ok) {
           console.error('[CCTV] ITS 프록시 호출 실패:', itsOutcome.error);
           callback({ ok: false, error: itsOutcome.error });
           return;
         }
-        var list = dedupeCctvItemsAcrossSources(dedupeCctvItems(itsOutcome.list.concat(ggList)));
+        // 합치는 순서가 곧 우선순위임 - 좌표가 겹치면 먼저 온 쪽이 남는다.
+        // 1) ITS: 실시간 영상까지 정상 동작하는 것이 확인된 기본 소스
+        // 2) UTIC: 크롤링 때 정지영상 200 응답을 실제로 확인한 것만 담겨 있음(전국 11,205대)
+        // 3) GG: 도심 커버리지는 좋지만 내려주는 영상 토큰이 낡아 401이 잦음
+        // 그래서 같은 자리에 GG와 UTIC이 겹치면 실제로 보이는 UTIC 쪽이 살아남는다.
+        var merged = itsOutcome.list.concat(uticList).concat(ggList);
+        var list = dedupeCctvItemsAcrossSources(dedupeCctvItems(merged));
         cctvClientCache[key] = { list: list, time: Date.now() };
         callback({ ok: true, list: list });
       }
@@ -545,6 +553,23 @@
       }).catch(function(err) {
         console.error('[CCTV] 경기(GITS) 프록시 호출 실패(보조 소스라 ITS만으로 계속 진행):', err);
         ggList = [];
+        tryFinishProxy();
+      });
+
+      // 도시교통정보센터(경찰청) UTIC. 서버가 미리 만들어 둔 좌표 파일만 읽어 응답하므로
+      // 빠르고, 담겨 있는 카메라는 전부 정지영상 취득이 확인된 것들임. 정지영상 주소는
+      // 원본(cctvsec.ktict.co.kr)이 아니라 우리 서버 /api/utic-snapshot 을 가리키므로
+      // 인증키가 브라우저에 노출되지 않고 Mixed Content/CORS 문제도 생기지 않음.
+      // 보조 소스라 실패해도 ITS만으로 계속 진행함.
+      fetch(uticProxyUrl).then(function(res) {
+        if (!res.ok) throw new Error('HTTP ' + res.status);
+        return res.json();
+      }).then(function(data) {
+        uticList = extractCctvItems(data);
+        tryFinishProxy();
+      }).catch(function(err) {
+        console.error('[CCTV] UTIC 프록시 호출 실패(보조 소스라 ITS만으로 계속 진행):', err);
+        uticList = [];
         tryFinishProxy();
       });
       return;
