@@ -1038,10 +1038,18 @@
   }
 
   // 콘텐츠 타입에 맞는 임베드 HTML 생성 (유튜브 iframe / 인스타그램 공식 블록쿼트)
+  // ⚠️ 2026-08: 쇼츠는 세로 영상이라 기존 16:9(height 315) 틀에 넣으면 영상이 가운데
+  // 조그맣게 들어가고 좌우가 검게 남음. spot.vertical이 있으면 9:16 세로 틀로 그린다.
+  // 예전에 등록된 스팟에는 vertical 값이 없으므로 자동으로 기존 16:9로 동작함.
   function buildEmbedHtml(spot) {
     if (spot.type === 'instagram') {
       return '<blockquote class="instagram-media" data-instgrm-permalink="' + spot.permalink +
         '" data-instgrm-version="14" style="margin:0;width:100%;min-width:280px;"></blockquote>';
+    }
+    if (spot.vertical) {
+      return '<iframe src="https://www.youtube.com/embed/' + spot.videoId +
+        '" style="display:block;margin:0 auto;width:100%;max-width:300px;aspect-ratio:9/16;border:0;border-radius:10px;" ' +
+        'allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture" allowfullscreen></iframe>';
     }
     return '<iframe width="100%" height="315" src="https://www.youtube.com/embed/' + spot.videoId +
       '" frameborder="0" allowfullscreen></iframe>';
@@ -1572,14 +1580,33 @@
   });
 
   // URL을 보고 유튜브인지 인스타그램인지 자동 감지
+  // ⚠️ 2026-08: 쇼츠(youtube.com/shorts/…)가 어느 패턴에도 걸리지 않아 등록이 막혀 있었음.
+  // 쇼츠는 일반 영상과 같은 11자리 영상 아이디를 쓰므로 embed 재생 자체는 문제없고,
+  // 다만 세로 영상이라 16:9 틀에 넣으면 좌우가 검게 남아서 vertical 표시를 같이 남김
+  // (buildEmbedHtml에서 9:16 세로 비율로 그림). 모바일 공유 링크에 흔히 붙는
+  // ?si=… 같은 꼬리표는 11자리만 잡으면 자연히 무시됨.
   function extractContentInfo(url) {
-    var yt = url.match(/(?:youtube\.com\/(?:watch\?v=|live\/|embed\/)|youtu\.be\/)([a-zA-Z0-9_-]{11})/);
-    if (yt) return { type: 'youtube', videoId: yt[1] };
+    var yt = url.match(/(?:youtube\.com\/(?:watch\?v=|live\/|embed\/|shorts\/|v\/)|youtu\.be\/)([a-zA-Z0-9_-]{11})/);
+    if (yt) {
+      var isShorts = /youtube\.com\/shorts\//.test(url);
+      return { type: 'youtube', videoId: yt[1], vertical: isShorts, kind: isShorts ? 'shorts' : 'video' };
+    }
 
-    var ig = url.match(/instagram\.com\/(?:reel|p|tv)\/([a-zA-Z0-9_-]+)/);
-    if (ig) return { type: 'instagram', permalink: url.split('?')[0] };
+    // 인스타그램은 릴스 주소가 reel(단수)과 reels(복수) 두 가지로 공유됨
+    var ig = url.match(/instagram\.com\/(?:reels?|p|tv)\/([a-zA-Z0-9_-]+)/);
+    if (ig) {
+      var isReel = /instagram\.com\/reels?\//.test(url);
+      return { type: 'instagram', permalink: url.split('?')[0], vertical: isReel, kind: isReel ? 'reels' : 'post' };
+    }
 
     return null;
+  }
+
+  // 입력한 링크를 무엇으로 알아봤는지 사용자에게 그대로 말해주기 위한 이름표
+  function contentKindLabel(info) {
+    if (!info) return '';
+    if (info.type === 'youtube') return info.kind === 'shorts' ? '유튜브 쇼츠' : '유튜브 영상';
+    return info.kind === 'reels' ? '인스타그램 릴스' : '인스타그램 게시물';
   }
 
   document.getElementById('registerBtn').addEventListener('click', function() {
@@ -2215,7 +2242,18 @@
     var formHtml =
       '<div class="formRow"><label>장소 이름</label><input id="regTitle" type="text" placeholder="예: 우리집 앞마당, OO캠핑장"></div>' +
       '<div class="formRow"><label>어떤 콘텐츠인가요?</label><div id="catButtons" style="display:flex;gap:6px;flex-wrap:wrap;">' + catButtonsHtml + '</div></div>' +
-      '<div class="formRow"><label>링크 (유튜브 라이브 또는 인스타그램 릴스/게시물)</label><input id="regUrl" type="text" placeholder="https://youtube.com/watch?v=... 또는 https://instagram.com/reel/..."></div>' +
+      // ⚠️ 2026-08: 입력칸 안내문에 주소 예시(https://youtube.com/watch?v=...)를 넣어뒀더니
+      // 모바일에서 칸 너비를 넘어 "https://yout..."처럼 잘려 보였음. 잘린 주소는 읽어도
+      // 뜻을 알 수 없고 오히려 "이런 형식으로 직접 타이핑해야 하나" 하는 오해를 준다.
+      // 그래서 입력칸에는 해야 할 행동("붙여넣기")만 남기고, 무엇을 올릴 수 있는지와
+      // 링크 복사 방법은 아래 안내줄로 옮김. 안내줄은 링크를 붙여넣는 즉시 무엇으로
+      // 알아봤는지 알려주는 자리로도 쓰여서, 등록 버튼을 누르기 전에 확인할 수 있다.
+      '<div class="formRow"><label>링크</label>' +
+      '<input id="regUrl" type="text" inputmode="url" autocomplete="off" spellcheck="false" placeholder="여기에 링크를 붙여넣어 주세요">' +
+      '<p id="regUrlHint" style="margin:6px 0 0;font-size:12px;line-height:1.65;color:#6b7280;">' +
+      '유튜브 <b>영상 · 라이브 · 쇼츠</b>, 인스타그램 <b>릴스 · 게시물</b>을 올릴 수 있어요.<br>' +
+      '앱에서 <b>공유 → 링크 복사</b>를 누른 다음, 이 칸을 길게 눌러 붙여넣기 하시면 됩니다.' +
+      '</p></div>' +
       '<p id="quickReportHint" style="display:none;font-size:12px;color:#c2410c;margin:-4px 0 12px;">🚨 현장 제보는 장소 이름과 링크만 입력하면 바로 등록돼요. 등록 즉시 "🚨 최근 제보" 목록 맨 위에 최신순으로 노출됩니다.</p>' +
       '<div class="formRow" id="journeyFormRow"><label><span id="journeyLabelMain">기록 이름</span> <span id="journeyLabelHint" style="color:#999;font-weight:normal;">(선택 — 여러 곳을 하나로 묶고 싶을 때)</span></label>' +
       '<input id="regJourney" type="text" list="journeyList" placeholder="예: 26년7월 지리산여행">' +
@@ -2259,6 +2297,37 @@
       });
     });
 
+    // 링크를 붙여넣는 즉시 무엇으로 알아봤는지 알려줌. 등록 버튼을 눌러야 비로소
+    // "지원하지 않는 링크"라고 알려주던 방식은, 사용자가 이미 다 채운 뒤에 되돌아가야 해서
+    // 불편했음. 아직 못 알아본 상태는 빨강이 아니라 주황으로 - 입력 도중에는 아직
+    // 틀린 게 아니라 "덜 붙여넣은" 경우가 대부분이기 때문.
+    var urlInput = document.getElementById('regUrl');
+    var urlHint = document.getElementById('regUrlHint');
+    var urlHintDefault = urlHint ? urlHint.innerHTML : '';
+    function refreshUrlHint() {
+      if (!urlInput || !urlHint) return;
+      var v = urlInput.value.trim();
+      if (!v) {
+        urlHint.innerHTML = urlHintDefault;
+        urlHint.style.color = '#6b7280';
+        return;
+      }
+      var info = extractContentInfo(v);
+      if (info) {
+        urlHint.innerHTML = '✅ <b>' + contentKindLabel(info) + '</b>으로 확인했어요. 이대로 등록하시면 됩니다.';
+        urlHint.style.color = '#15803d';
+      } else {
+        urlHint.innerHTML = '아직 링크를 알아보지 못했어요. 주소 <b>전체</b>가 들어갔는지 확인해주세요.<br>' +
+          '유튜브 영상·라이브·쇼츠, 인스타그램 릴스·게시물만 등록할 수 있어요.';
+        urlHint.style.color = '#c2410c';
+      }
+    }
+    if (urlInput) {
+      urlInput.addEventListener('input', refreshUrlHint);
+      // 붙여넣기는 값이 반영되기 전에 이벤트가 오므로 한 박자 뒤에 다시 확인
+      urlInput.addEventListener('paste', function() { setTimeout(refreshUrlHint, 0); });
+    }
+
     document.getElementById('cancelRegisterLink').addEventListener('click', function(e) {
       e.preventDefault();
       exitPlacingMode();
@@ -2273,7 +2342,7 @@
 
       if (!title) { document.getElementById('placeHint').textContent = '장소 이름을 입력해주세요.'; return; }
       if (!selectedCategory) { document.getElementById('placeHint').textContent = '어떤 콘텐츠인지 선택해주세요.'; return; }
-      if (!info) { document.getElementById('placeHint').textContent = '유튜브(watch/live) 또는 인스타그램(reel/p) 링크만 지원합니다. 링크를 다시 확인해주세요.'; return; }
+      if (!info) { document.getElementById('placeHint').textContent = '링크를 알아보지 못했어요. 유튜브 영상·라이브·쇼츠, 인스타그램 릴스·게시물 주소를 통째로 붙여넣어 주세요.'; return; }
 
       var newSpot = { name: title, lat: pendingLatLng.lat, lng: pendingLatLng.lng, type: info.type, ownerId: myOwnerId, category: selectedCategory };
       var journeyInput = document.getElementById('regJourney').value.trim();
@@ -2281,6 +2350,8 @@
       newSpot.createdAt = firebase.firestore.FieldValue.serverTimestamp();
       if (info.type === 'youtube') newSpot.videoId = info.videoId;
       else newSpot.permalink = info.permalink;
+      // 쇼츠처럼 세로 영상이면 표시할 때 9:16 틀로 그리기 위해 남겨둠(buildEmbedHtml 참고)
+      if (info.vertical) newSpot.vertical = true;
 
       var confirmBtn = document.getElementById('confirmRegisterBtn');
       confirmBtn.disabled = true;
