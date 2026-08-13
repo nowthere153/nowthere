@@ -1859,6 +1859,11 @@
       if (liveBtn && streamUrl) {
         liveBtn.addEventListener('click', switchToLive);
       }
+      // 서버가 전수 검사에서 "사진은 죽었고 실시간만 살아있다"고 표시한 카메라는
+      // 깨진 이미지를 잠깐 보여줬다가 넘어가지 말고 처음부터 실시간으로 연다.
+      if (entry.liveFirst && streamUrl) {
+        switchToLive();
+      }
     } else {
       // 사진 주소를 못 받아온 극히 일부 카메라 - 실시간 영상 새 창으로 폴백
       showStatus('📹 ' + name + ' - 새 창에서 CCTV 영상을 엽니다');
@@ -1889,7 +1894,7 @@
           color: 'purple',
           iconSize: iconSize,
           onClick: function() {
-            openCctvPopup({ name: name, lat: lat, lng: lng, imageUrl: imageUrl, streamUrl: streamUrl });
+            openCctvPopup({ name: name, lat: lat, lng: lng, imageUrl: imageUrl, streamUrl: streamUrl, liveFirst: !!item.liveFirst });
           }
         }));
       });
@@ -2026,7 +2031,7 @@
           });
         }
         card.addEventListener('click', function() {
-          openCctvPopup({ name: pt.label + ' · ' + name, lat: ilat, lng: ilng, imageUrl: imageUrl, streamUrl: streamUrl });
+          openCctvPopup({ name: pt.label + ' · ' + name, lat: ilat, lng: ilng, imageUrl: imageUrl, streamUrl: streamUrl, liveFirst: !!item.liveFirst });
         });
         renderOne(idx + 1);
       });
