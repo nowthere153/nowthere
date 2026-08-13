@@ -1850,9 +1850,20 @@
       // 읽지 못함. 서버가 relayLive 표시를 붙여준 카메라는 우리 서버의 중계
       // (/api/hls-proxy)를 거쳐 재생함 - 우리 도메인(https) 응답이 되므로 두 문제가
       // 함께 해소됨. 새 창 링크는 원본 주소를 그대로 씀(페이지 밖에서는 직접 열림).
-      var playUrl = (entry.relayLive && CCTV_PROXY_BASE_URL && streamUrl)
-        ? CCTV_PROXY_BASE_URL + '/api/hls-proxy?url=' + encodeURIComponent(streamUrl)
-        : streamUrl;
+      // ⚠️ 2026-08: 경기(GITS)의 영상 주소에는 유효시간이 있는 토큰이 들어 있어서,
+      // 목록을 캐시해둔 뒤(브라우저 30분) 나중에 우산을 누르면 이미 만료된 주소가 됨.
+      // 그래서 주소를 들고 있다가 쓰지 않고 좌표만 넘겨, 누르는 순간 서버가 현재
+      // 유효한 주소를 새로 받아 중계하도록 함. 이것이 예전부터 "어떤 우산은 되고
+      // 어떤 우산은 안 되던" 증상의 원인으로 추정됨(카메라 차이가 아니라 시간 차이).
+      var playUrl = streamUrl;
+      if (entry.relayLive && CCTV_PROXY_BASE_URL) {
+        if (entry.lat != null && entry.lng != null) {
+          playUrl = CCTV_PROXY_BASE_URL + '/api/hls-proxy?ggx=' + encodeURIComponent(entry.lng) +
+            '&ggy=' + encodeURIComponent(entry.lat);
+        } else if (streamUrl) {
+          playUrl = CCTV_PROXY_BASE_URL + '/api/hls-proxy?url=' + encodeURIComponent(streamUrl);
+        }
+      }
 
       function switchToLive() {
         if (cctvImageRefreshTimer) { clearInterval(cctvImageRefreshTimer); cctvImageRefreshTimer = null; }
