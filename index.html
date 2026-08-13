@@ -1845,6 +1845,15 @@
           caption.innerHTML = '<a href="' + streamUrl + '" target="_blank" rel="noopener" style="color:#4a90d9;">그래도 원본 주소 열어보기(재생 안 될 수 있음)</a>';
         }
       }
+      // 경기(GITS) 영상은 주소가 http로 오는 경우가 있어 HTTPS인 우리 페이지에서
+      // 브라우저가 아예 차단하고(Mixed Content), CORS 헤더도 없어 hls.js가 직접
+      // 읽지 못함. 서버가 relayLive 표시를 붙여준 카메라는 우리 서버의 중계
+      // (/api/hls-proxy)를 거쳐 재생함 - 우리 도메인(https) 응답이 되므로 두 문제가
+      // 함께 해소됨. 새 창 링크는 원본 주소를 그대로 씀(페이지 밖에서는 직접 열림).
+      var playUrl = (entry.relayLive && CCTV_PROXY_BASE_URL && streamUrl)
+        ? CCTV_PROXY_BASE_URL + '/api/hls-proxy?url=' + encodeURIComponent(streamUrl)
+        : streamUrl;
+
       function switchToLive() {
         if (cctvImageRefreshTimer) { clearInterval(cctvImageRefreshTimer); cctvImageRefreshTimer = null; }
         img.style.display = 'none';
@@ -1854,7 +1863,7 @@
         video.style.display = 'block';
         caption.innerHTML = '🔴 실시간 영상입니다 (연결 상태에 따라 화질/속도가 달라질 수 있습니다) · ' +
           '<a href="' + streamUrl + '" target="_blank" rel="noopener" style="color:#4a90d9;">새 창에서 크게 보기</a>';
-        playCctvLiveInline(streamUrl, video, showLiveFailure);
+        playCctvLiveInline(playUrl, video, showLiveFailure);
       }
       if (liveBtn && streamUrl) {
         liveBtn.addEventListener('click', switchToLive);
@@ -1894,7 +1903,7 @@
           color: 'purple',
           iconSize: iconSize,
           onClick: function() {
-            openCctvPopup({ name: name, lat: lat, lng: lng, imageUrl: imageUrl, streamUrl: streamUrl, liveFirst: !!item.liveFirst });
+            openCctvPopup({ name: name, lat: lat, lng: lng, imageUrl: imageUrl, streamUrl: streamUrl, liveFirst: !!item.liveFirst, relayLive: !!item.relayLive });
           }
         }));
       });
@@ -2031,7 +2040,7 @@
           });
         }
         card.addEventListener('click', function() {
-          openCctvPopup({ name: pt.label + ' · ' + name, lat: ilat, lng: ilng, imageUrl: imageUrl, streamUrl: streamUrl, liveFirst: !!item.liveFirst });
+          openCctvPopup({ name: pt.label + ' · ' + name, lat: ilat, lng: ilng, imageUrl: imageUrl, streamUrl: streamUrl, liveFirst: !!item.liveFirst, relayLive: !!item.relayLive });
         });
         renderOne(idx + 1);
       });
