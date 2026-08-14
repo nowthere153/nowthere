@@ -1832,7 +1832,7 @@
   function openCctvPopup(entry) {
     var name = entry.name, lat = entry.lat, lng = entry.lng;
     var streamUrl = entry.streamUrl, imageUrl = entry.imageUrl;
-    if (!imageUrl && !streamUrl) {
+    if (!imageUrl && !streamUrl && !entry.streamResolve) {
       showStatus('⚠️ ' + name + ' - 영상 정보를 받아오지 못했습니다.');
       return;
     }
@@ -1845,7 +1845,7 @@
     // 브라우저 모두 문제없이 받아짐이 실제 테스트로 확인됨. 그래서 사진을 기본으로
     // 페이지 안에 바로 보여주고(스트리밍처럼 CORS/차단 문제가 없어 로딩 지연·
     // 검은 화면 없이 즉시 표시됨), 실시간 영상은 원하는 사람만 보는 보조 옵션으로 남겨둠.
-    if (imageUrl || streamUrl) {
+    if (imageUrl || streamUrl || entry.streamResolve) {
       // 위치 이름이 제목표시줄과 본문에 중복 표시되던 것을 정리 - 제목표시줄은
       // "이곳 날씨도 확인"(공통 안내)+아이콘을 담당하고, 위치 이름은 본문에 한
       // 번만 표시. 아이콘도 이모지(☔) 대신 지도 마커와 같은 SVG 이미지를 써서
@@ -1978,6 +1978,33 @@
         }
       }
 
+      // ⚠️ 2026-08: 제주는 재생주소에 authKey·sessionID가 붙어 있어 미리 저장할 수 없다.
+      // 누르는 순간 서버(/api/local-stream)가 받아오고, 받은 주소는 CORS 허용이라
+      // 브라우저가 직접 재생한다(우리 대역폭 0). 또 제주는 스스로 시청을 30초로
+      // 제한하므로(entry.maxSeconds) 그 시간이 지나면 멈추고 다시 보기 버튼을 준다.
+      function startLiveWith(url) {
+        caption.innerHTML = '🔴 실시간 영상입니다' +
+          (entry.maxSeconds ? ' · 제공기관 정책상 ' + entry.maxSeconds + '초 후 자동으로 멈춥니다' : '') +
+          ' · <a href="' + url + '" target="_blank" rel="noopener" style="color:#4a90d9;">새 창에서 크게 보기</a>';
+        playCctvLiveInline(url, video, showLiveFailure);
+        if (entry.maxSeconds) {
+          if (cctvLiveLimitTimer) { clearTimeout(cctvLiveLimitTimer); }
+          cctvLiveLimitTimer = setTimeout(function() {
+            stopCctvPlayback();
+            errMsg.style.display = 'block';
+            errMsg.style.color = '#475569';
+            errMsg.innerHTML = '제공기관 정책에 따라 ' + entry.maxSeconds + '초 후 재생이 멈췄습니다. ' +
+              '<button id="cctvAgainBtn" style="margin-left:6px;border:none;border-radius:6px;padding:5px 12px;' +
+              'background:#111827;color:#fff;font-size:12px;cursor:pointer;">다시 보기</button>';
+            var again = document.getElementById('cctvAgainBtn');
+            if (again) again.addEventListener('click', function() {
+              errMsg.style.display = 'none';
+              switchToLive();
+            });
+          }, entry.maxSeconds * 1000);
+        }
+      }
+
       function switchToLive() {
         if (cctvImageRefreshTimer) { clearInterval(cctvImageRefreshTimer); cctvImageRefreshTimer = null; }
         img.style.display = 'none';
@@ -1985,6 +2012,17 @@
         errMsg.style.display = 'none';
         liveBtn.style.display = 'none';
         video.style.display = 'block';
+        if (entry.streamResolve && CCTV_PROXY_BASE_URL) {
+          caption.textContent = '영상 주소를 받아오는 중…';
+          fetch(CCTV_PROXY_BASE_URL + '/api/local-stream?ref=' + encodeURIComponent(entry.streamResolve))
+            .then(function(r) { if (!r.ok) throw new Error('HTTP ' + r.status); return r.json(); })
+            .then(function(d) { startLiveWith(d.url); })
+            .catch(function(err) {
+              console.error('[CCTV] 지자체 영상주소 조회 실패:', err);
+              showLiveFailure();
+            });
+          return;
+        }
         caption.innerHTML = '🔴 실시간 영상입니다 (연결 상태에 따라 화질/속도가 달라질 수 있습니다) · ' +
           '<a href="' + streamUrl + '" target="_blank" rel="noopener" style="color:#4a90d9;">새 창에서 크게 보기</a>';
         playCctvLiveInline(playUrl, video, showLiveFailure);
@@ -1994,7 +2032,7 @@
       }
       // 서버가 전수 검사에서 "사진은 죽었고 실시간만 살아있다"고 표시한 카메라는
       // 깨진 이미지를 잠깐 보여줬다가 넘어가지 말고 처음부터 실시간으로 연다.
-      if ((entry.liveFirst || !imageUrl) && streamUrl) {
+      if ((entry.liveFirst || !imageUrl) && (streamUrl || entry.streamResolve)) {
         switchToLive();
       }
     } else {
@@ -2027,7 +2065,7 @@
           color: 'purple',
           iconSize: iconSize,
           onClick: function() {
-            openCctvPopup({ name: name, lat: lat, lng: lng, imageUrl: imageUrl, streamUrl: streamUrl, liveFirst: !!item.liveFirst, relayLive: !!item.relayLive });
+            openCctvPopup({ name: name, lat: lat, lng: lng, imageUrl: imageUrl, streamUrl: streamUrl, liveFirst: !!item.liveFirst, relayLive: !!item.relayLive, streamResolve: item.streamResolve || '', maxSeconds: item.maxSeconds || 0 });
           }
         }));
       });
@@ -2164,7 +2202,7 @@
           });
         }
         card.addEventListener('click', function() {
-          openCctvPopup({ name: pt.label + ' · ' + name, lat: ilat, lng: ilng, imageUrl: imageUrl, streamUrl: streamUrl, liveFirst: !!item.liveFirst, relayLive: !!item.relayLive });
+          openCctvPopup({ name: pt.label + ' · ' + name, lat: ilat, lng: ilng, imageUrl: imageUrl, streamUrl: streamUrl, liveFirst: !!item.liveFirst, relayLive: !!item.relayLive, streamResolve: item.streamResolve || '', maxSeconds: item.maxSeconds || 0 });
         });
         renderOne(idx + 1);
       });
@@ -2670,8 +2708,10 @@
   // CCTV 영상(hls.js)이 재생 중일 때 모달이 다른 내용으로 바뀌거나 닫히면 재생을 확실히
   // 멈추기 위한 핸들 - 안 멈추면 화면엔 안 보여도 백그라운드에서 계속 스트림을 받습니다.
   var currentCctvHls = null;
-  var cctvImageRefreshTimer = null; // CCTV 정지영상 자동 새로고침 타이머 - 모달이 바뀌거나 닫히면 반드시 정리
+  var cctvImageRefreshTimer = null;
+  var cctvLiveLimitTimer = null; // 제공기관이 건 시청 제한(제주 30초)용 // CCTV 정지영상 자동 새로고침 타이머 - 모달이 바뀌거나 닫히면 반드시 정리
   function stopCctvPlayback() {
+    if (cctvLiveLimitTimer) { clearTimeout(cctvLiveLimitTimer); cctvLiveLimitTimer = null; }
     if (currentCctvHls) { currentCctvHls.destroy(); currentCctvHls = null; }
     if (cctvImageRefreshTimer) { clearInterval(cctvImageRefreshTimer); cctvImageRefreshTimer = null; }
   }
