@@ -1057,6 +1057,49 @@
     });
   }
 
+  // ⚠️ 2026-08 (ID80): 기상청 초단기실황 한 줄 표시.
+  // CCTV는 경기·서울·인천 밖 도심을 덮지 못한다는 것이 실측으로 확인됐다(부산·대구·
+  // 제주 도심 0대). 반면 기상청 실황은 전국을 5km 격자로 빠짐없이 덮으므로, 카메라가
+  // 있든 없든 "지금 거기 비 오나"에 답할 수 있다. 서버(/api/weather-now)가 대신
+  // 호출하므로 인증키는 브라우저에 노출되지 않고, 같은 격자는 서버가 캐시해서
+  // 기상청 호출이 사용자 수만큼 늘지 않는다.
+  function weatherLinePlaceholder(id) {
+    return '<p id="' + id + '" style="margin:8px 0 0;font-size:12.5px;color:#94a3b8;">' +
+      '지금 이 지점 날씨를 확인하는 중…</p>';
+  }
+
+  function fillWeatherLine(id, lat, lng) {
+    var el = document.getElementById(id);
+    if (!el) return;
+    if (!CCTV_PROXY_BASE_URL || lat == null || lng == null) { el.style.display = 'none'; return; }
+    fetch(CCTV_PROXY_BASE_URL + '/api/weather-now?lat=' + encodeURIComponent(lat) + '&lng=' + encodeURIComponent(lng))
+      .then(function(res) {
+        if (!res.ok) throw new Error('HTTP ' + res.status);
+        return res.json();
+      })
+      .then(function(w) {
+        var el2 = document.getElementById(id);
+        if (!el2) return;
+        var parts = [];
+        if (w.raining) {
+          parts.push('☔ 지금 ' + (w.ptyLabel || '강수') + (w.rain1h ? ' (1시간 ' + w.rain1h + 'mm)' : ''));
+        } else {
+          parts.push('☀️ 지금 비 안 옴');
+        }
+        if (w.temp != null) parts.push(w.temp + '℃');
+        if (w.humidity != null) parts.push('습도 ' + w.humidity + '%');
+        var hh = (w.baseTime || '').slice(0, 2);
+        el2.innerHTML = parts.join(' · ') +
+          (hh ? ' <span style="color:#cbd5e1;">· 기상청 ' + hh + '시 관측</span>' : '');
+        el2.style.color = w.raining ? '#2563eb' : '#64748b';
+      })
+      .catch(function(err) {
+        console.error('[날씨] 실황 조회 실패:', err);
+        var el3 = document.getElementById(id);
+        if (el3) el3.style.display = 'none'; // 실패해도 화면을 어지럽히지 않음
+      });
+  }
+
   // 콘텐츠 타입에 맞는 임베드 HTML 생성 (유튜브 iframe / 인스타그램 공식 블록쿼트)
   // ⚠️ 2026-08: 쇼츠는 세로 영상이라 기존 16:9(height 315) 틀에 넣으면 영상이 가운데
   // 조그맣게 들어가고 좌우가 검게 남음. spot.vertical이 있으면 9:16 세로 틀로 그린다.
@@ -1143,6 +1186,7 @@
       body += '<p style="margin-bottom:8px;padding:8px 10px;border-radius:8px;background:#f0f9ff;color:#075985;font-size:12.5px;">🏙️ 조망 인증 링크 — 아래 "공유 링크 복사"를 눌러 매물 페이지 등에 붙여넣으면 이 뷰를 그대로 보여줄 수 있어요.</p>';
     }
     body += buildEmbedHtml(spot);
+    body += weatherLinePlaceholder('spotWeatherLine');
     if (spot.journey) {
       body += '<button id="viewJourneyBtn" style="margin-top:10px;padding:8px 14px;border-radius:8px;border:1px solid #ddd;background:white;color:#4338ca;cursor:pointer;font-size:13px;">🧭 이 여정 전체보기</button>';
     }
@@ -1165,6 +1209,7 @@
     body += btnRow;
 
     openModal(spot.name, body);
+    fillWeatherLine('spotWeatherLine', spot.lat, spot.lng);
     if (spot.type === 'instagram' && window.instgrm) {
       window.instgrm.Embeds.process();
     }
@@ -1804,8 +1849,11 @@
         '<p id="cctvSnapshotErr" style="display:none;margin-top:8px;font-size:12.5px;color:#c0392b;"></p>' +
         '<p id="cctvCaption" style="margin:8px 0 0;font-size:11.5px;color:#aaa;">지금 보이는 화면은 정지영상이며 약 20초마다 자동으로 새로고침됩니다' +
         (streamUrl ? ' · 실시간으로 보려면 우측 상단의 LIVE 보기 버튼을 눌러주세요' : '') +
-        '</p>';
+        '</p>' +
+        weatherLinePlaceholder('cctvWeatherLine');
       openModal('이곳 날씨도 확인', body, weatherIconSvgDataUrl());
+      // 화면이 흐리거나 밤이라 영상만으로는 판단이 어려울 때를 위한 보완 정보
+      fillWeatherLine('cctvWeatherLine', lat, lng);
       var img = document.getElementById('cctvSnapshotImg');
       var video = document.getElementById('cctvLiveVideo');
       var errMsg = document.getElementById('cctvSnapshotErr');
