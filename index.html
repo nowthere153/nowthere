@@ -2322,7 +2322,10 @@
       Object.keys(counts).map(function(k) { return categoryLabel(k) + ' ' + counts[k]; }).join(' · ') +
       '</div>' +
 
-      '<div style="font-weight:700;margin:16px 0 6px;">4. 서버 상태</div>' +
+      '<div style="font-weight:700;margin:16px 0 6px;">4. 커버리지 현황</div>' +
+      '<div id="admCoverage" style="font-size:12.5px;color:#94a3b8;">불러오는 중…</div>' +
+
+      '<div style="font-weight:700;margin:16px 0 6px;">5. 서버 상태</div>' +
       '<div id="admHealth" style="font-size:12.5px;color:#94a3b8;">확인 중…</div>' +
       '</div>';
 
@@ -2364,6 +2367,36 @@
         renderAdminConsole();
       }).catch(function(err) { alert('저장 실패: ' + err.message); });
     });
+
+    // 커버리지 현황 - "어디가 되고 어디가 안 되는지"를 상시 확인.
+    // 전국을 5km 격자로 나눠 시군구별로 묶은 값(coverage-build.js가 미리 산출).
+    // 카메라가 없는 격자도 기상청 실황은 100% 덮으므로 그 대비도 함께 보여준다.
+    if (CCTV_PROXY_BASE_URL) {
+      fetch(CCTV_PROXY_BASE_URL + '/api/coverage').then(function(r) {
+        if (!r.ok) throw new Error(r.status === 404 ? '아직 산출 전' : ('HTTP ' + r.status));
+        return r.json();
+      }).then(function(cv) {
+        var el = document.getElementById('admCoverage');
+        if (!el) return;
+        var sm = cv.summary || {};
+        var worst = (cv.regions || []).slice(0, 8).map(function(g) {
+          return g.sido + ' ' + g.sigungu + ' ' + g.rate + '%(' + g.total + '대)';
+        }).join(' · ');
+        var d = (cv.builtAt || '').slice(0, 10);
+        el.innerHTML =
+          '전국 육지 격자 ' + sm.landCells + '개 중 <b>' + sm.coveredCells + '개 커버 (' + sm.coverageRate + '%)</b><br>' +
+          '카메라 ' + sm.cameras + '대 · 시군구 ' + sm.regions + '곳 · 기준일 ' + d + '<br>' +
+          '<span style="color:#c2410c;">취약 지역: ' + (worst || '-') + '</span><br>' +
+          '<span style="color:#64748b;">카메라가 없는 격자도 기상청 실황은 전국 100% 응답합니다.</span>';
+        el.style.color = '#475569';
+      }).catch(function(e) {
+        var el = document.getElementById('admCoverage');
+        if (el) {
+          el.textContent = '커버리지 자료 없음 (' + e.message + ') — 서버에서 coverage-build.js 실행 필요';
+          el.style.color = '#c2410c';
+        }
+      });
+    }
 
     // 서버가 살아있는지, 각 소스가 실제로 응답하는지 관리자 화면에서 바로 확인
     var el = document.getElementById('admHealth');
