@@ -548,6 +548,8 @@
         tryFinishProxy();
       });
 
+      // 꺼진 소스는 호출 자체를 하지 않는다 - 서버 부하와 대역폭을 원천적으로 아낌
+      if (!CCTV_SOURCES.gg) { ggList = []; } else
       fetch(ggProxyUrl).then(function(res) {
         if (!res.ok) throw new Error('HTTP ' + res.status);
         return res.json();
@@ -565,11 +567,17 @@
       // 원본(cctvsec.ktict.co.kr)이 아니라 우리 서버 /api/utic-snapshot 을 가리키므로
       // 인증키가 브라우저에 노출되지 않고 Mixed Content/CORS 문제도 생기지 않음.
       // 보조 소스라 실패해도 ITS만으로 계속 진행함.
+      if (!CCTV_SOURCES.uticStill && !CCTV_SOURCES.uticCity) { uticList = []; } else
       fetch(uticProxyUrl).then(function(res) {
         if (!res.ok) throw new Error('HTTP ' + res.status);
         return res.json();
       }).then(function(data) {
-        uticList = extractCctvItems(data);
+        // 한 엔드포인트에 고속도로 정지영상(utic)과 도심 실시간(utic-city)이 섞여 오므로
+        // 관리자가 끈 쪽은 여기서 걸러낸다.
+        uticList = extractCctvItems(data).filter(function(it) {
+          if (it.roadType === 'utic-city') return CCTV_SOURCES.uticCity;
+          return CCTV_SOURCES.uticStill;
+        });
         tryFinishProxy();
       }).catch(function(err) {
         console.error('[CCTV] UTIC 프록시 호출 실패(보조 소스라 ITS만으로 계속 진행):', err);
@@ -581,6 +589,7 @@
       // 있다는 것이 실측으로 확인되어(부산·대구·제주 도심은 0대) 지자체 사이트에
       // 하나씩 직접 연결하는 경로. 충주는 HLS·무인증·CORS 허용이라 브라우저가 바로
       // 재생하며 우리 서버 대역폭이 들지 않음.
+      if (!CCTV_SOURCES.local) { localList = []; } else
       fetch(localProxyUrl).then(function(res) {
         if (!res.ok) throw new Error('HTTP ' + res.status);
         return res.json();
@@ -1707,12 +1716,37 @@
   // CCTV 연동 전체 공개 여부 - 관리자가 config/settings.cctvEnabled로 조정 (ID 69)
   // 검증 전까지는 기본값 false로 두어 일반 사용자에게는 노출하지 않음
   var CCTV_ENABLED = false;
+
+  // ⚠️ 2026-08 (ID69 확장): CCTV 소스가 다섯 개로 늘면서 "전체 켜기/끄기" 하나로는
+  // 운영이 안 됨. 소스마다 우리 서버 비용이 다르기 때문임(실측).
+  //   its         국토부 고속도로·국도 정지영상 - 브라우저가 원본에서 직접 받음. 비용 0
+  //   uticCity    경찰청 UTIC 도심 CCTV(2,016대) - 대부분 CORS 허용이라 직접 재생. 비용 0
+  //   local       지자체 자체 사이트(충주 등) - HLS·CORS 허용. 비용 0
+  //   uticStill   UTIC 고속도로·국도 정지영상 중계 - 장당 110KB, 15초 공유캐시. 비용 매우 작음
+  //   gg          경기 GITS 실시간 - CORS가 없어 중계 필수. 시청 1시간당 약 0.9GB. 유일한 실질 비용
+  // 커버리지 분석 결과 유료 소스(gg + 도심 일부)가 추가로 덮는 5km 격자는 전체 2,463개
+  // 중 34개뿐이었다. 그래서 gg는 기본값을 꺼두고, 필요할 때 관리자가 켜도록 한다.
+  var CCTV_SOURCES = { its: true, uticStill: true, uticCity: true, local: true, gg: false };
+  var CCTV_SOURCE_INFO = [
+    { key: 'its',       label: '국토부 고속도로·국도(정지영상)', cost: '무료' },
+    { key: 'uticCity',  label: '경찰청 UTIC 도심 CCTV',        cost: '무료' },
+    { key: 'local',     label: '지자체 자체(충주 등)',          cost: '무료' },
+    { key: 'uticStill', label: 'UTIC 고속도로·국도 중계',       cost: '거의 없음' },
+    { key: 'gg',        label: '경기 GITS 실시간',             cost: '유료(중계)' }
+  ];
+
   db.collection('config').doc('settings').get().then(function(doc) {
     if (doc.exists && typeof doc.data().recentReportsHours === 'number') {
       RECENT_REPORTS_HOURS = doc.data().recentReportsHours;
     }
     if (doc.exists && typeof doc.data().cctvEnabled === 'boolean') {
       CCTV_ENABLED = doc.data().cctvEnabled;
+    }
+    if (doc.exists && doc.data().cctvSources) {
+      var saved = doc.data().cctvSources;
+      Object.keys(CCTV_SOURCES).forEach(function(k) {
+        if (typeof saved[k] === 'boolean') CCTV_SOURCES[k] = saved[k];
+      });
     }
     updateCctvButtonVisibility();
   }).catch(function(err) { console.error('설정 로드 실패:', err); });
@@ -2230,6 +2264,131 @@
     if (cctvVisible) loadCctvMarkers();
   });
 
+  // ================================================================
+  // 관리자 콘솔 (ID19 확장 / ID69 / ID64 일부)
+  // ----------------------------------------------------------------
+  // 그동안 관리자 기능이 화면 곳곳에 흩어져 있었다 - CCTV 공개설정은 CCTV 안내
+  // 모달에, 최근제보 기준시간은 제보 목록 모달에 들어 있어서 관리자가 "지금 무엇을
+  // 어떻게 설정해 뒀는지" 한눈에 볼 수 없었다. 운영 항목이 늘어난 지금(소스 5개,
+  // 비용이 다른 소스가 섞임) 한 화면에 모아둔다.
+  // 화면은 일부러 단순한 글자 위주로 만든다 - 관리자용이라 꾸밀 이유가 없고,
+  // 항목이 계속 늘어날 것이므로 추가하기 쉬운 형태가 낫다.
+  // ================================================================
+  function adminSourceRows() {
+    return CCTV_SOURCE_INFO.map(function(src) {
+      var on = !!CCTV_SOURCES[src.key];
+      var costColor = src.cost === '유료(중계)' ? '#c2410c' : (src.cost === '무료' ? '#0a7d2c' : '#64748b');
+      return '<div style="display:flex;align-items:center;justify-content:space-between;gap:10px;padding:8px 0;border-bottom:1px solid #f1f5f9;">' +
+        '<div style="min-width:0;"><div style="font-size:13px;">' + src.label + '</div>' +
+        '<div style="font-size:11.5px;color:' + costColor + ';">서버 비용: ' + src.cost + '</div></div>' +
+        '<button class="admSrcBtn" data-key="' + src.key + '" style="flex:0 0 auto;border:none;border-radius:6px;padding:6px 12px;font-size:12px;cursor:pointer;background:' +
+        (on ? '#0a7d2c' : '#cbd5e1') + ';color:' + (on ? '#fff' : '#475569') + ';">' +
+        (on ? 'ON' : 'OFF') + '</button></div>';
+    }).join('');
+  }
+
+  function renderAdminConsole() {
+    var counts = {};
+    sharedSpots.forEach(function(sp) {
+      var k = sp.category || '미분류';
+      counts[k] = (counts[k] || 0) + 1;
+    });
+    var reported = sharedSpots.filter(function(sp) { return (sp.reportCount || 0) > 0; }).length;
+
+    var body =
+      '<div style="font-size:13px;line-height:1.7;">' +
+
+      '<div style="font-weight:700;margin:2px 0 6px;">1. 공개 설정</div>' +
+      '<div style="display:flex;align-items:center;justify-content:space-between;gap:10px;padding:8px 0;border-bottom:1px solid #f1f5f9;">' +
+      '<span>CCTV 기능 전체 공개</span>' +
+      '<button id="admCctvEnable" style="border:none;border-radius:6px;padding:6px 12px;font-size:12px;cursor:pointer;background:' +
+      (CCTV_ENABLED ? '#0a7d2c' : '#cbd5e1') + ';color:' + (CCTV_ENABLED ? '#fff' : '#475569') + ';">' +
+      (CCTV_ENABLED ? '공개 중' : '비공개') + '</button></div>' +
+      '<div style="display:flex;align-items:center;justify-content:space-between;gap:10px;padding:8px 0;border-bottom:1px solid #f1f5f9;">' +
+      '<span>현장 제보 "최근" 기준</span>' +
+      '<button id="admHours" style="border:1px solid #cbd5e1;border-radius:6px;padding:6px 12px;font-size:12px;cursor:pointer;background:#fff;">' +
+      RECENT_REPORTS_HOURS + '시간 · 변경</button></div>' +
+
+      '<div style="font-weight:700;margin:16px 0 6px;">2. CCTV 소스별 사용</div>' +
+      adminSourceRows() +
+      '<p style="margin:8px 0 0;font-size:11.5px;color:#64748b;">' +
+      '끈 소스는 호출 자체를 하지 않습니다. 유료 소스는 시청 시간에 비례해 서버 대역폭을 씁니다' +
+      '(경기 실시간 기준 시청 1시간당 약 0.9GB). 커버리지 조사에서 유료 소스가 추가로 덮는 지역은 ' +
+      '전국 5km 격자 2,463개 중 34개였습니다.</p>' +
+
+      '<div style="font-weight:700;margin:16px 0 6px;">3. 등록 현황</div>' +
+      '<div style="font-size:12.5px;color:#475569;">전체 ' + sharedSpots.length + '건' +
+      (reported ? ' · 신고 누적 ' + reported + '건' : '') + '<br>' +
+      Object.keys(counts).map(function(k) { return categoryLabel(k) + ' ' + counts[k]; }).join(' · ') +
+      '</div>' +
+
+      '<div style="font-weight:700;margin:16px 0 6px;">4. 서버 상태</div>' +
+      '<div id="admHealth" style="font-size:12.5px;color:#94a3b8;">확인 중…</div>' +
+      '</div>';
+
+    openModal('⚙️ 관리자 콘솔', body);
+
+    document.querySelectorAll('.admSrcBtn').forEach(function(btn) {
+      btn.addEventListener('click', function() {
+        var k = btn.getAttribute('data-key');
+        CCTV_SOURCES[k] = !CCTV_SOURCES[k];
+        db.collection('config').doc('settings').set({ cctvSources: CCTV_SOURCES }, { merge: true })
+          .then(function() {
+            cctvClientCache = {}; // 소스가 바뀌었으니 캐시를 버리고 다시 받아야 함
+            showStatus('✅ ' + k + ' 소스를 ' + (CCTV_SOURCES[k] ? 'ON' : 'OFF') + '으로 저장했습니다.');
+            if (cctvVisible) loadCctvMarkers();
+            renderAdminConsole();
+          })
+          .catch(function(err) { alert('저장 실패: ' + err.message); });
+      });
+    });
+
+    var enBtn = document.getElementById('admCctvEnable');
+    if (enBtn) enBtn.addEventListener('click', function() {
+      var newVal = !CCTV_ENABLED;
+      db.collection('config').doc('settings').set({ cctvEnabled: newVal }, { merge: true }).then(function() {
+        CCTV_ENABLED = newVal;
+        updateCctvButtonVisibility();
+        renderAdminConsole();
+      }).catch(function(err) { alert('저장 실패: ' + err.message); });
+    });
+
+    var hBtn = document.getElementById('admHours');
+    if (hBtn) hBtn.addEventListener('click', function() {
+      var val = prompt('현장 제보를 "최근"으로 표시할 기준 시간(시간 단위)', RECENT_REPORTS_HOURS);
+      if (val === null) return;
+      var n = parseInt(val, 10);
+      if (isNaN(n) || n <= 0) { alert('1 이상의 숫자를 입력해주세요.'); return; }
+      db.collection('config').doc('settings').set({ recentReportsHours: n }, { merge: true }).then(function() {
+        RECENT_REPORTS_HOURS = n;
+        renderAdminConsole();
+      }).catch(function(err) { alert('저장 실패: ' + err.message); });
+    });
+
+    // 서버가 살아있는지, 각 소스가 실제로 응답하는지 관리자 화면에서 바로 확인
+    var el = document.getElementById('admHealth');
+    if (el && CCTV_PROXY_BASE_URL) {
+      var probe = '?minX=126.95&maxX=127.05&minY=37.53&maxY=37.60';
+      var checks = [
+        ['국토부', '/api/its-cctv' + probe],
+        ['UTIC', '/api/utic-snapshot-list' + probe],
+        ['지자체', '/api/local-cctv' + probe],
+        ['경기', '/api/gg-cctv' + probe]
+      ];
+      Promise.all(checks.map(function(c) {
+        return fetch(CCTV_PROXY_BASE_URL + c[1]).then(function(r) {
+          if (!r.ok) throw new Error(r.status);
+          return r.json();
+        }).then(function(d) {
+          return c[0] + ' ' + (extractCctvItems(d).length) + '대';
+        }).catch(function(e) { return c[0] + ' 실패(' + e.message + ')'; });
+      })).then(function(rows) {
+        var el2 = document.getElementById('admHealth');
+        if (el2) { el2.textContent = rows.join(' · '); el2.style.color = '#475569'; }
+      });
+    }
+  }
+
   // 관리자 전용: 전체 사용자에게 CCTV 기능을 공개할지(cctvEnabled) 조정
   function renderCctvAdminModal() {
     var body = '<p style="margin-bottom:14px;">현재 전체 사용자에게 CCTV 기능이 ' +
@@ -2249,7 +2408,7 @@
       }).catch(function(err) { alert('저장 실패: ' + err.message); });
     });
   }
-  document.getElementById('cctvAdminBtn').addEventListener('click', renderCctvAdminModal);
+  document.getElementById('cctvAdminBtn').addEventListener('click', renderAdminConsole);
 
   function renderRecentReports() {
     var cutoff = Date.now() - RECENT_REPORTS_HOURS * 3600 * 1000;
