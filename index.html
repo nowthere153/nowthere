@@ -511,12 +511,14 @@
       var itsProxyUrl = CCTV_PROXY_BASE_URL + '/api/its-cctv' + bboxQuery;
       var ggProxyUrl = CCTV_PROXY_BASE_URL + '/api/gg-cctv' + bboxQuery;
       var uticProxyUrl = CCTV_PROXY_BASE_URL + '/api/utic-snapshot-list' + bboxQuery;
+      var localProxyUrl = CCTV_PROXY_BASE_URL + '/api/local-cctv' + bboxQuery;
 
       var itsOutcome = null; // { ok: true, list: [...] } 또는 { ok: false, error }
       var ggList = null; // 항상 배열로 확정(실패 시 빈 배열)
       var uticList = null; // 항상 배열로 확정(실패 시 빈 배열)
+      var localList = null; // 지자체 자체 CCTV(충주 등) - 항상 배열로 확정
       function tryFinishProxy() {
-        if (itsOutcome === null || ggList === null || uticList === null) return; // 셋 다 도착할 때까지 대기
+        if (itsOutcome === null || ggList === null || uticList === null || localList === null) return; // 넷 다 도착할 때까지 대기
         if (!itsOutcome.ok) {
           console.error('[CCTV] ITS 프록시 호출 실패:', itsOutcome.error);
           callback({ ok: false, error: itsOutcome.error });
@@ -527,7 +529,9 @@
         // 2) UTIC: 크롤링 때 정지영상 200 응답을 실제로 확인한 것만 담겨 있음(전국 11,205대)
         // 3) GG: 도심 커버리지는 좋지만 내려주는 영상 토큰이 낡아 401이 잦음
         // 그래서 같은 자리에 GG와 UTIC이 겹치면 실제로 보이는 UTIC 쪽이 살아남는다.
-        var merged = itsOutcome.list.concat(uticList).concat(ggList);
+        // 2) 지자체 자체 CCTV(충주 등)를 ITS 바로 다음에 둠 - 토큰·만료가 없고
+        //    브라우저가 직접 재생하는 확실한 소스라 우선순위가 높음
+        var merged = itsOutcome.list.concat(localList).concat(uticList).concat(ggList);
         var list = dedupeCctvItemsAcrossSources(dedupeCctvItems(merged));
         cctvClientCache[key] = { list: list, time: Date.now() };
         callback({ ok: true, list: list });
@@ -570,6 +574,22 @@
       }).catch(function(err) {
         console.error('[CCTV] UTIC 프록시 호출 실패(보조 소스라 ITS만으로 계속 진행):', err);
         uticList = [];
+        tryFinishProxy();
+      });
+
+      // 지자체 자체 교통정보센터 CCTV(충주 등). 도심 카메라가 경기·서울·인천에만
+      // 있다는 것이 실측으로 확인되어(부산·대구·제주 도심은 0대) 지자체 사이트에
+      // 하나씩 직접 연결하는 경로. 충주는 HLS·무인증·CORS 허용이라 브라우저가 바로
+      // 재생하며 우리 서버 대역폭이 들지 않음.
+      fetch(localProxyUrl).then(function(res) {
+        if (!res.ok) throw new Error('HTTP ' + res.status);
+        return res.json();
+      }).then(function(data) {
+        localList = extractCctvItems(data);
+        tryFinishProxy();
+      }).catch(function(err) {
+        console.error('[CCTV] 지자체 프록시 호출 실패(보조 소스라 ITS만으로 계속 진행):', err);
+        localList = [];
         tryFinishProxy();
       });
       return;
@@ -1746,7 +1766,7 @@
     // 브라우저 모두 문제없이 받아짐이 실제 테스트로 확인됨. 그래서 사진을 기본으로
     // 페이지 안에 바로 보여주고(스트리밍처럼 CORS/차단 문제가 없어 로딩 지연·
     // 검은 화면 없이 즉시 표시됨), 실시간 영상은 원하는 사람만 보는 보조 옵션으로 남겨둠.
-    if (imageUrl) {
+    if (imageUrl || streamUrl) {
       // 위치 이름이 제목표시줄과 본문에 중복 표시되던 것을 정리 - 제목표시줄은
       // "이곳 날씨도 확인"(공통 안내)+아이콘을 담당하고, 위치 이름은 본문에 한
       // 번만 표시. 아이콘도 이모지(☔) 대신 지도 마커와 같은 SVG 이미지를 써서
@@ -1816,8 +1836,17 @@
         if (!el) { clearInterval(cctvImageRefreshTimer); cctvImageRefreshTimer = null; return; }
         el.src = imageUrl + (imageUrl.indexOf('?') > -1 ? '&' : '?') + 't=' + Date.now();
       }
-      refreshSnapshot();
-      cctvImageRefreshTimer = setInterval(refreshSnapshot, 20000);
+      // ⚠️ 2026-08: 지자체 자체 CCTV(충주 등)는 정지영상 없이 HLS 실시간만 제공함.
+      // 그런 카메라는 사진 관련 동작을 아예 건너뛰고 곧바로 실시간으로 연다.
+      // (예전에는 사진 주소가 없으면 새 창을 열었는데, .m3u8 주소는 브라우저가
+      // 재생할 수 있는 페이지가 아니라 주소 글자만 보이는 무의미한 창이 됐음)
+      if (imageUrl) {
+        refreshSnapshot();
+        cctvImageRefreshTimer = setInterval(refreshSnapshot, 20000);
+      } else {
+        img.style.display = 'none';
+        if (stillBadge) stillBadge.style.display = 'none';
+      }
 
       // ⚠️ 2026-07-29: 경기 GITS 일부 카메라의 liveUrl은 hls.js로도 재생이 안 되는
       // 경우가 발견됨(예: gitsview.gg.go.kr:8082의 wmsAuthSign 토큰 방식 - ITS/KTICT
@@ -1841,7 +1870,9 @@
           cctvImageRefreshTimer = setInterval(refreshSnapshot, 20000);
         } else {
           liveBtn.style.display = 'none';
-          errMsg.textContent = '이 카메라는 사진과 실시간 영상 모두 지금 불러올 수 없습니다 - 카메라 제공사 사정으로 추정됩니다.';
+          errMsg.textContent = imageUrl
+            ? '이 카메라는 사진과 실시간 영상 모두 지금 불러올 수 없습니다 - 카메라 제공사 사정으로 추정됩니다.'
+            : '이 카메라는 지금 영상을 불러올 수 없습니다 - 카메라 제공사 사정으로 추정됩니다.';
           caption.innerHTML = '<a href="' + streamUrl + '" target="_blank" rel="noopener" style="color:#4a90d9;">그래도 원본 주소 열어보기(재생 안 될 수 있음)</a>';
         }
       }
@@ -1881,7 +1912,7 @@
       }
       // 서버가 전수 검사에서 "사진은 죽었고 실시간만 살아있다"고 표시한 카메라는
       // 깨진 이미지를 잠깐 보여줬다가 넘어가지 말고 처음부터 실시간으로 연다.
-      if (entry.liveFirst && streamUrl) {
+      if ((entry.liveFirst || !imageUrl) && streamUrl) {
         switchToLive();
       }
     } else {
