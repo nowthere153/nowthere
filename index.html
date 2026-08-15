@@ -395,7 +395,7 @@
   // 생기면 재사용 가능) index.html에서는 호출하지 않음.
   // 배포된 파일이 최신인지 콘솔에서 한 줄로 확인하기 위한 표시.
   // 같은 이유로 여러 번 헛돌아서(옛 파일이 올라간 줄 모르고 디버깅) 넣어둠.
-  var NOWTHERE_VERSION = 'v2026-08-15d (실시간 재시도 · 제주 무료 · 날씨보기 사진우선)';
+  var NOWTHERE_VERSION = 'v2026-08-15e (날씨보기 중복사진 제거 · 좌표 기준 식별)';
   console.log('[NowThere] ' + NOWTHERE_VERSION);
 
   var CCTV_PROXY_BASE_URL = 'https://api.nowthere.net';
@@ -2125,8 +2125,31 @@
     return Math.sqrt(dLat * dLat + dLng * dLng);
   }
 
+  // ⚠️ 2026-08 수정: 예전에는 영상주소(cctvurl)를 카메라 식별자로 먼저 썼는데, ITS·경기
+  // 영상주소에는 요청할 때마다 새로 발급되는 토큰이 들어 있다. 5칸을 그리면서 반경을
+  // 넓혀 여러 번 조회하면 같은 카메라인데 주소가 달라져 "다른 카메라"로 인식되고, 중복
+  // 제외가 통하지 않아 중앙·동·서에 같은 사진이 나왔다(실사용 피드백). 좌표는 조회할
+  // 때마다 바뀌지 않으므로 좌표를 기본 식별자로 쓴다.
   function cctvIdOf(item) {
+    var lat = parseFloat(item.coordy), lng = parseFloat(item.coordx);
+    if (!isNaN(lat) && !isNaN(lng)) return lat.toFixed(5) + ',' + lng.toFixed(5);
     return item.cctvurl || (item.roadsectionid + ',' + item.coordx + ',' + item.coordy);
+  }
+
+  // 좌표가 미세하게 다르게 들어오는 소스가 있을 수 있어(같은 카메라를 소수점 아래에서
+  // 다르게 표기), 실제로 화면에 나오는 "사진 주소"로도 한 번 더 걸러준다. 주소에서
+  // 매번 바뀌는 토큰류 값만 떼어내고 비교하므로 같은 카메라면 같은 값이 된다.
+  function cctvImageKeyOf(item) {
+    if (!item || !item.imageUrl) return '';
+    var raw = String(item.imageUrl);
+    var qi = raw.indexOf('?');
+    if (qi === -1) return 'img:' + raw;
+    var base = raw.slice(0, qi);
+    var kept = raw.slice(qi + 1).split('&').filter(function(pair) {
+      var name = pair.split('=')[0].toLowerCase();
+      return !/^(token|key|authkey|auth|wmsauthsign|sessionid|sid|t|ts|time|timestamp|rand|r|_)$/.test(name);
+    }).sort();
+    return 'img:' + base + (kept.length ? '?' + kept.join('&') : '');
   }
 
   // 지정한 좌표 근처에서 가장 가까운 CCTV 1개를 찾음. ID73 설계 원칙과 동일하게, 좁은
@@ -2145,6 +2168,10 @@
     var best = null, bestDist = Infinity;
     list.forEach(function(item) {
       if (excludeIds && excludeIds[cctvIdOf(item)]) return;
+      if (excludeIds) {
+        var imgKey = cctvImageKeyOf(item);
+        if (imgKey && excludeIds[imgKey]) return;
+      }
       if (imageOnly && !item.imageUrl) return;
       var ilat = parseFloat(item.coordy), ilng = parseFloat(item.coordx);
       if (isNaN(ilat) || isNaN(ilng)) return;
@@ -2226,6 +2253,8 @@
           return;
         }
         usedIds[cctvIdOf(item)] = true;
+        var usedImgKey = cctvImageKeyOf(item);
+        if (usedImgKey) usedIds[usedImgKey] = true;
         var imageUrl = item.imageUrl || '';
         var streamUrl = item.cctvurl || '';
         var name = item.cctvname || pt.label;
