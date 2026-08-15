@@ -396,7 +396,7 @@
   // 생기면 재사용 가능) index.html에서는 호출하지 않음.
   // 배포된 파일이 최신인지 콘솔에서 한 줄로 확인하기 위한 표시.
   // 같은 이유로 여러 번 헛돌아서(옛 파일이 올라간 줄 모르고 디버깅) 넣어둠.
-  var NOWTHERE_VERSION = 'v2026-08-15k (국도·고속 실시간 무중계 재생 · mp4 대비책)';
+  var NOWTHERE_VERSION = 'v2026-08-15m (경기까지 무중계 재생 · 유료 소스 소멸)';
   console.log('[NowThere] ' + NOWTHERE_VERSION);
 
   var CCTV_PROXY_BASE_URL = 'https://api.nowthere.net';
@@ -1873,7 +1873,7 @@
     { key: 'uticCity',  label: '경찰청 UTIC 도심 CCTV',        cost: '무료' },
     { key: 'local',     label: '지자체 자체(충주·제주·울산 552대)', cost: '무료' },
     { key: 'uticStill', label: 'UTIC 고속도로·국도 중계',       cost: '거의 없음' },
-    { key: 'gg',        label: '경기 GITS 실시간',             cost: '유료(중계)' }
+    { key: 'gg',        label: '경기 GITS 실시간(중계 폐지)',   cost: '무료' }
   ];
 
   db.collection('config').doc('settings').get().then(function(doc) {
@@ -2200,6 +2200,21 @@
             });
           return;
         }
+        // ⚠️ 2026-08: 경기(GITS)도 중계를 걷어냈다. 목록의 주소는 안내소일 뿐이고,
+        // 그 안내소가 알려주는 안쪽 주소는 https·CORS * 라 브라우저가 직접 재생한다.
+        // 주소에 유효시간 120분 서명이 붙어 미리 저장할 수 없으므로 누를 때 받아온다.
+        if (entry.ggResolve && CCTV_PROXY_BASE_URL && entry.lat != null && entry.lng != null) {
+          caption.textContent = '영상 주소를 받아오는 중…';
+          fetch(CCTV_PROXY_BASE_URL + '/api/gg-stream?ggx=' + encodeURIComponent(entry.lng) +
+                '&ggy=' + encodeURIComponent(entry.lat))
+            .then(function(r) { if (!r.ok) throw new Error('HTTP ' + r.status); return r.json(); })
+            .then(function(d) { startLiveWith(d.url); })
+            .catch(function(err) {
+              console.error('[CCTV] 경기 영상주소 조회 실패:', err);
+              showLiveFailure();
+            });
+          return;
+        }
         caption.innerHTML = '🔴 실시간 영상입니다 (연결 상태에 따라 화질/속도가 달라질 수 있습니다) · ' +
           '<a href="' + streamUrl + '" target="_blank" rel="noopener" style="color:#4a90d9;">새 창에서 크게 보기</a>';
         playCctvLiveInline(playUrl, video, showLiveFailure);
@@ -2242,7 +2257,7 @@
           color: 'purple',
           iconSize: iconSize,
           onClick: function() {
-            openCctvPopup({ name: name, lat: lat, lng: lng, imageUrl: imageUrl, streamUrl: streamUrl, mp4Url: item.mp4Url || '', liveFirst: !!item.liveFirst, relayLive: !!item.relayLive, streamResolve: item.streamResolve || '', maxSeconds: item.maxSeconds || 0 });
+            openCctvPopup({ name: name, lat: lat, lng: lng, imageUrl: imageUrl, streamUrl: streamUrl, mp4Url: item.mp4Url || '', liveFirst: !!item.liveFirst, relayLive: !!item.relayLive, ggResolve: !!item.ggResolve, streamResolve: item.streamResolve || '', maxSeconds: item.maxSeconds || 0 });
           }
         }));
       });
@@ -2451,7 +2466,7 @@
           });
         }
         card.addEventListener('click', function() {
-          openCctvPopup({ name: pt.label + ' · ' + name, lat: ilat, lng: ilng, imageUrl: imageUrl, streamUrl: streamUrl, mp4Url: item.mp4Url || '', liveFirst: !!item.liveFirst, relayLive: !!item.relayLive, streamResolve: item.streamResolve || '', maxSeconds: item.maxSeconds || 0 });
+          openCctvPopup({ name: pt.label + ' · ' + name, lat: ilat, lng: ilng, imageUrl: imageUrl, streamUrl: streamUrl, mp4Url: item.mp4Url || '', liveFirst: !!item.liveFirst, relayLive: !!item.relayLive, ggResolve: !!item.ggResolve, streamResolve: item.streamResolve || '', maxSeconds: item.maxSeconds || 0 });
         });
         renderOne(idx + 1);
       }, true);
