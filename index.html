@@ -396,7 +396,7 @@
   // 생기면 재사용 가능) index.html에서는 호출하지 않음.
   // 배포된 파일이 최신인지 콘솔에서 한 줄로 확인하기 위한 표시.
   // 같은 이유로 여러 번 헛돌아서(옛 파일이 올라간 줄 모르고 디버깅) 넣어둠.
-  var NOWTHERE_VERSION = 'v2026-08-15i (날씨를 팝업 상단으로 · 관측 경과시간 표시)';
+  var NOWTHERE_VERSION = 'v2026-08-15j (기상청 CCTV 영상분석 703지점 연동)';
   console.log('[NowThere] ' + NOWTHERE_VERSION);
 
   var CCTV_PROXY_BASE_URL = 'https://api.nowthere.net';
@@ -1213,15 +1213,33 @@
         var age = observationAgeText(w.baseDate, w.baseTime);
         var stamp = hh ? '기상청 ' + hh + '시 관측' + (age ? ' · ' + age : '') : '';
         var prominent = el2.tagName === 'DIV';
+        // 기상청 CCTV 영상분석(ID89). 전국 703개 도로 지점에서만 온다.
+        // ⚠️ 이건 우리 판정이 아니다 - 출처를 반드시 밝히고, 관측 시각을 함께 적는다.
+        // 우리는 "지금 화면"을 보여줄 뿐이고 판단은 사용자가 한다. 시제를 정직하게
+        // 표기하는 것만으로 실시간성이라는 차별점은 저절로 드러난다(2026-08 방침).
+        var roadHtml = '';
+        if (w.road && w.road.weatherNm) {
+          var rw = w.road.weatherNm;
+          var rainish = /비|눈|안개/.test(rw);
+          var rAge = observationAgeText(w.road.baseDate, w.road.baseTime);
+          var rt = (w.road.baseTime || '');
+          var rClock = rt.length >= 4 ? rt.slice(0, 2) + ':' + rt.slice(2, 4) : '';
+          roadHtml = '<div style="margin-top:6px;padding-top:6px;border-top:1px dashed #e2e8f0;' +
+            'font-size:12.5px;color:' + (rainish ? '#2563eb' : '#475569') + ';">' +
+            '🎥 기상청 영상분석: <b>' + rw + '</b>' +
+            '<span style="color:#94a3b8;"> · ' + (rClock ? rClock : '') +
+            (rAge ? ' (' + rAge + ')' : '') + '</span></div>';
+        }
         if (prominent) {
           el2.innerHTML =
             '<div style="font-size:14.5px;font-weight:700;color:' + (w.raining ? '#2563eb' : '#334155') + ';">' +
             parts.join(' · ') + '</div>' +
             (stamp ? '<div style="margin-top:3px;font-size:11.5px;color:#94a3b8;">' + stamp +
-              ' · 정시 관측값이라 화면과 다를 수 있습니다</div>' : '');
+              ' · 정시 관측값이라 화면과 다를 수 있습니다</div>' : '') +
+            roadHtml;
         } else {
           el2.innerHTML = parts.join(' · ') +
-            (stamp ? ' <span style="color:#cbd5e1;">· ' + stamp + '</span>' : '');
+            (stamp ? ' <span style="color:#cbd5e1;">· ' + stamp + '</span>' : '') + roadHtml;
           el2.style.color = w.raining ? '#2563eb' : '#64748b';
         }
       })
