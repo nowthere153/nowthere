@@ -393,6 +393,11 @@
   // 영상 재생 주소(streamUrl)는 이 프록시를 거치지 않고 원본 그대로 사용함(아래 CCTV
   // 마커 클릭 핸들러 참고). hls-relay.js 서버 코드/라우트는 남겨두되(향후 다른 방법이
   // 생기면 재사용 가능) index.html에서는 호출하지 않음.
+  // 배포된 파일이 최신인지 콘솔에서 한 줄로 확인하기 위한 표시.
+  // 같은 이유로 여러 번 헛돌아서(옛 파일이 올라간 줄 모르고 디버깅) 넣어둠.
+  var NOWTHERE_VERSION = 'v2026-08-15a (제주277·충주43·기상청·관리자콘솔)';
+  console.log('[NowThere] ' + NOWTHERE_VERSION);
+
   var CCTV_PROXY_BASE_URL = 'https://api.nowthere.net';
 
   // ITS 개인키는 하루 호출 한도가 있습니다(실사용 테스트로 "개인 제한량을 초과하였습니다"
@@ -1940,22 +1945,25 @@
       // 정지영상도 없었다면 "이 카메라는 지금 영상을 볼 수 없다"는 명확한 안내와 함께
       // 원하는 사람만 눌러볼 수 있는 링크만 남겨둠(자동 새 창 없음).
       function showLiveFailure() {
-        video.style.display = 'none';
+        if (video) video.style.display = 'none';
+        if (!errMsg) return;
         errMsg.style.display = 'block';
         if (imageLoadedOnce) {
-          img.style.display = 'block';
-          stillBadge.style.display = '';
-          liveBtn.style.display = '';
+          if (img) img.style.display = 'block';
+          if (stillBadge) stillBadge.style.display = '';
+          if (liveBtn) liveBtn.style.display = '';
           errMsg.textContent = '실시간 재생에 실패해 정지영상으로 되돌아갑니다.';
           caption.textContent = '지금 보이는 화면은 정지영상이며 약 20초마다 자동으로 새로고침됩니다';
           refreshSnapshot();
           cctvImageRefreshTimer = setInterval(refreshSnapshot, 20000);
         } else {
-          liveBtn.style.display = 'none';
+          if (liveBtn) liveBtn.style.display = 'none';
           errMsg.textContent = imageUrl
             ? '이 카메라는 사진과 실시간 영상 모두 지금 불러올 수 없습니다 - 카메라 제공사 사정으로 추정됩니다.'
             : '이 카메라는 지금 영상을 불러올 수 없습니다 - 카메라 제공사 사정으로 추정됩니다.';
-          caption.innerHTML = '<a href="' + streamUrl + '" target="_blank" rel="noopener" style="color:#4a90d9;">그래도 원본 주소 열어보기(재생 안 될 수 있음)</a>';
+          caption.innerHTML = streamUrl
+            ? '<a href="' + streamUrl + '" target="_blank" rel="noopener" style="color:#4a90d9;">그래도 원본 주소 열어보기(재생 안 될 수 있음)</a>'
+            : '잠시 후 다시 시도해주세요.';
         }
       }
       // 경기(GITS) 영상은 주소가 http로 오는 경우가 있어 HTTPS인 우리 페이지에서
@@ -1991,6 +1999,7 @@
           if (cctvLiveLimitTimer) { clearTimeout(cctvLiveLimitTimer); }
           cctvLiveLimitTimer = setTimeout(function() {
             stopCctvPlayback();
+            if (!errMsg) return;
             errMsg.style.display = 'block';
             errMsg.style.color = '#475569';
             errMsg.innerHTML = '제공기관 정책에 따라 ' + entry.maxSeconds + '초 후 재생이 멈췄습니다. ' +
@@ -2007,11 +2016,14 @@
 
       function switchToLive() {
         if (cctvImageRefreshTimer) { clearInterval(cctvImageRefreshTimer); cctvImageRefreshTimer = null; }
-        img.style.display = 'none';
-        stillBadge.style.display = 'none';
-        errMsg.style.display = 'none';
-        liveBtn.style.display = 'none';
-        video.style.display = 'block';
+        // ⚠️ 2026-08: LIVE 버튼은 streamUrl이 있을 때만 만들어진다. 제주처럼 주소를
+        // 나중에 받아오는 카메라는 streamUrl이 비어 있어 버튼이 존재하지 않으므로
+        // 여기서 null 검사가 없으면 팝업 자체가 터진다(실제 발생).
+        if (img) img.style.display = 'none';
+        if (stillBadge) stillBadge.style.display = 'none';
+        if (errMsg) errMsg.style.display = 'none';
+        if (liveBtn) liveBtn.style.display = 'none';
+        if (video) video.style.display = 'block';
         if (entry.streamResolve && CCTV_PROXY_BASE_URL) {
           caption.textContent = '영상 주소를 받아오는 중…';
           fetch(CCTV_PROXY_BASE_URL + '/api/local-stream?ref=' + encodeURIComponent(entry.streamResolve))
