@@ -396,7 +396,7 @@
   // 생기면 재사용 가능) index.html에서는 호출하지 않음.
   // 배포된 파일이 최신인지 콘솔에서 한 줄로 확인하기 위한 표시.
   // 같은 이유로 여러 번 헛돌아서(옛 파일이 올라간 줄 모르고 디버깅) 넣어둠.
-  var NOWTHERE_VERSION = 'v2026-08-15n (유료 소스 없음 · 관리자 안내문 갱신)';
+  var NOWTHERE_VERSION = 'v2026-08-15p (영상 실패 원인 콘솔 기록)';
   console.log('[NowThere] ' + NOWTHERE_VERSION);
 
   var CCTV_PROXY_BASE_URL = 'https://api.nowthere.net';
@@ -3045,7 +3045,18 @@
         netRetry = 0; mediaRetry = 0;
       });
       currentCctvHls.on(Hls.Events.ERROR, function(evt, data) {
-        if (!data || !data.fatal || gaveUp) return;
+        if (!data) return;
+        // ⚠️ 2026-08: 실패 원인을 화면에서 지우기만 하고 어디에도 남기지 않아, 제주
+        // 카메라가 안 될 때 콘솔이 완전히 비어 있었다(실사용에서 확인). 원인을 모르면
+        // 고칠 수도 없다. 치명적이지 않은 오류까지 한 줄로 남겨 진단할 수 있게 한다.
+        // details가 bufferAddCodecError·bufferAppendError면 영상 압축 방식을 브라우저가
+        // 그리지 못하는 것이고(내려받기는 성공하므로 서버 점검으로는 절대 드러나지 않음),
+        // manifestLoadError면 주소·CORS 문제다 - 대응이 완전히 다르다.
+        console.warn('[CCTV] hls 오류 · 치명적=' + !!data.fatal +
+          ' · 종류=' + (data.type || '?') + ' · 상세=' + (data.details || '?') +
+          (data.reason ? ' · 사유=' + data.reason : '') +
+          (data.response && data.response.code ? ' · HTTP=' + data.response.code : ''));
+        if (!data.fatal || gaveUp) return;
         var hls = currentCctvHls;
         if (!hls) return;
         if (data.type === Hls.ErrorTypes.NETWORK_ERROR && netRetry < CCTV_LIVE_MAX_RETRY) {
