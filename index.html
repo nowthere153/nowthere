@@ -395,7 +395,7 @@
   // 생기면 재사용 가능) index.html에서는 호출하지 않음.
   // 배포된 파일이 최신인지 콘솔에서 한 줄로 확인하기 위한 표시.
   // 같은 이유로 여러 번 헛돌아서(옛 파일이 올라간 줄 모르고 디버깅) 넣어둠.
-  var NOWTHERE_VERSION = 'v2026-08-15b (제주 중계 전환)';
+  var NOWTHERE_VERSION = 'v2026-08-15d (실시간 재시도 · 제주 무료 · 날씨보기 사진우선)';
   console.log('[NowThere] ' + NOWTHERE_VERSION);
 
   var CCTV_PROXY_BASE_URL = 'https://api.nowthere.net';
@@ -1994,6 +1994,7 @@
       // 브라우저가 직접 재생한다(우리 대역폭 0). 또 제주는 스스로 시청을 30초로
       // 제한하므로(entry.maxSeconds) 그 시간이 지나면 멈추고 다시 보기 버튼을 준다.
       function startLiveWith(url) {
+        if (errMsg) { errMsg.style.display = 'none'; }
         caption.innerHTML = '🔴 실시간 영상입니다' +
           (entry.maxSeconds ? ' · 제공기관 정책상 ' + entry.maxSeconds + '초 후 자동으로 멈춥니다' : '') +
           ' · <a href="' + url + '" target="_blank" rel="noopener" style="color:#4a90d9;">새 창에서 크게 보기</a>';
@@ -2135,22 +2136,38 @@
   // 다른 지점에서 뽑힌 카메라를 제외하기 위한 집합. 지점끼리 거리가 가까우면(2.5km 등)
   // 같은 카메라가 "가장 가까움"으로 여러 번 뽑히는 문제(2026-07 실사용 피드백으로 발견)를
   // 막기 위함 - 제외 후에도 그 반경에 남은 후보가 없으면 반경을 넓혀 계속 찾음.
-  function findNearestCctv(lat, lng, excludeIds, callback) {
+  // ⚠️ 2026-08 중요한 수정: 이 화면은 "그림으로 한눈에 보는 것"이 목적인데, 소스가
+  // 늘면서(UTIC 도심·충주·제주·경기) 정지영상 없이 실시간 영상만 주는 카메라가 많아졌다.
+  // 가장 가까운 카메라만 고르다 보니 사진 없는 카메라가 뽑혀 5칸이 전부 "이미지 없음"이
+  // 되는 퇴행이 실사용에서 발견됨. 카메라가 늘어난 것이 오히려 이 기능을 망가뜨렸다.
+  // 그래서 사진이 있는 카메라를 먼저 찾고, 그런 카메라가 하나도 없을 때만 조건을 푼다.
+  function pickNearestFrom(list, lat, lng, excludeIds, imageOnly) {
+    var best = null, bestDist = Infinity;
+    list.forEach(function(item) {
+      if (excludeIds && excludeIds[cctvIdOf(item)]) return;
+      if (imageOnly && !item.imageUrl) return;
+      var ilat = parseFloat(item.coordy), ilng = parseFloat(item.coordx);
+      if (isNaN(ilat) || isNaN(ilng)) return;
+      var d = approxDegDistance(lat, lng, ilat, ilng);
+      if (d < bestDist) { bestDist = d; best = item; }
+    });
+    return best;
+  }
+
+  function findNearestCctv(lat, lng, excludeIds, callback, imageOnly) {
     var radii = [0.03, 0.08, 0.2]; // 약 3km, 8km, 20km
     var i = 0;
     function tryNext() {
-      if (i >= radii.length) { callback(null); return; }
+      if (i >= radii.length) {
+        // 사진 있는 카메라를 못 찾았으면 조건을 풀고 한 번 더 찾는다
+        if (imageOnly) { findNearestCctv(lat, lng, excludeIds, callback, false); return; }
+        callback(null);
+        return;
+      }
       var r = radii[i++];
       fetchCctvList({ minX: lng - r, maxX: lng + r, minY: lat - r, maxY: lat + r }, function(result) {
         if (!result.ok || !result.list || result.list.length === 0) { tryNext(); return; }
-        var best = null, bestDist = Infinity;
-        result.list.forEach(function(item) {
-          if (excludeIds && excludeIds[cctvIdOf(item)]) return;
-          var ilat = parseFloat(item.coordy), ilng = parseFloat(item.coordx);
-          if (isNaN(ilat) || isNaN(ilng)) return;
-          var d = approxDegDistance(lat, lng, ilat, ilng);
-          if (d < bestDist) { bestDist = d; best = item; }
-        });
+        var best = pickNearestFrom(result.list, lat, lng, excludeIds, imageOnly);
         if (best) callback(best); else tryNext();
       });
     }
@@ -2167,6 +2184,29 @@
   // useDongLabel=true면(구군검색 전용) 카메라를 찾은 뒤 실제 좌표를 행정동 이름으로 역변환해
   // "중앙/북/남/동/서" 대신 실제 동네 이름을 라벨로 보여줌(2026-07, 사용자 피드백 반영).
   // 전국보기는 이미 도시명이 label이라 그대로 둠(호출 시 useDongLabel 생략).
+  // 사진이 없거나 사진 로드에 실패했을 때 그 자리에 현재 날씨를 보여준다.
+  // 빈 칸보다 낫고, 기상청 실황은 전국 어디서나 응답하므로 항상 무언가는 표시된다.
+  function showWeatherInstead(spinner, lat, lng, prefixMsg) {
+    if (!spinner) return;
+    spinner.textContent = prefixMsg ? prefixMsg : '날씨 확인 중…';
+    if (!CCTV_PROXY_BASE_URL || lat == null || lng == null) return;
+    fetch(CCTV_PROXY_BASE_URL + '/api/weather-now?lat=' + encodeURIComponent(lat) + '&lng=' + encodeURIComponent(lng))
+      .then(function(r) { if (!r.ok) throw new Error('HTTP ' + r.status); return r.json(); })
+      .then(function(w) {
+        var head = w.raining ? '☔ ' + (w.ptyLabel || '강수') : '☀️ 비 없음';
+        var sub = [];
+        if (w.rain1h) sub.push('1시간 ' + w.rain1h + 'mm');
+        if (w.temp != null) sub.push(w.temp + '℃');
+        spinner.innerHTML = '<div style="font-size:15px;font-weight:700;color:' +
+          (w.raining ? '#2563eb' : '#475569') + ';">' + head + '</div>' +
+          (sub.length ? '<div style="font-size:11.5px;color:#94a3b8;margin-top:2px;">' + sub.join(' · ') + '</div>' : '') +
+          '<div style="font-size:10.5px;color:#cbd5e1;margin-top:3px;">사진 없는 카메라 · 눌러서 영상 보기</div>';
+      })
+      .catch(function() {
+        spinner.textContent = prefixMsg ? prefixMsg : '사진 없음 · 눌러서 영상 보기';
+      });
+  }
+
   function renderCctvGrid(grid, points, useDongLabel) {
     var usedIds = {};
     function renderOne(idx) {
@@ -2177,6 +2217,7 @@
       card.innerHTML = '<div class="nwSpinner">불러오는 중…</div><span class="nwLabel"></span>';
       card.querySelector('.nwLabel').textContent = pt.label; // 지명은 사용자 검색어 유래일 수 있어 textContent로 안전하게 삽입
       grid.appendChild(card);
+      // 사진 있는 카메라를 우선으로 찾는다(이 화면의 목적이 "그림으로 한눈에 보기"이므로)
       findNearestCctv(pt.lat, pt.lng, usedIds, function(item) {
         var spinner = card.querySelector('.nwSpinner');
         if (!item) {
@@ -2193,11 +2234,14 @@
           var img = document.createElement('img');
           img.alt = pt.label;
           img.onload = function() { if (spinner) spinner.remove(); };
-          img.onerror = function() { if (spinner) spinner.textContent = '이미지를 불러오지 못했습니다'; };
+          img.onerror = function() { showWeatherInstead(spinner, pt.lat, pt.lng, '사진을 불러오지 못했습니다'); };
           img.src = imageUrl;
           card.insertBefore(img, card.firstChild);
         } else if (spinner) {
-          spinner.textContent = '이미지 없음';
+          // 사진이 없는 카메라(실시간 영상만 제공)라도 빈 칸을 보여주지 않는다.
+          // "이미지 없음"은 사용자에게 아무 값도 주지 않으므로, 그 지점의 현재 강수·기온을
+          // 대신 보여준다. 카드를 누르면 실시간 영상은 그대로 열린다.
+          showWeatherInstead(spinner, pt.lat, pt.lng, null);
         }
         if (useDongLabel && !isNaN(ilat) && !isNaN(ilng)) {
           // 카메라의 실제 좌표를 행정동 이름으로 역변환 - 실패해도 기존 방향 라벨(pt.label)이
@@ -2220,7 +2264,7 @@
           openCctvPopup({ name: pt.label + ' · ' + name, lat: ilat, lng: ilng, imageUrl: imageUrl, streamUrl: streamUrl, liveFirst: !!item.liveFirst, relayLive: !!item.relayLive, streamResolve: item.streamResolve || '', maxSeconds: item.maxSeconds || 0 });
         });
         renderOne(idx + 1);
-      });
+      }, true);
     }
     renderOne(0);
   }
@@ -2739,6 +2783,19 @@
   // 상황에서 재생이 실패할 수 있어(HLS fatal error 등), 호출부가 정지영상+새 창 링크로
   // 되돌아갈 수 있게 실패를 알려줌.
   var CCTV_LIVE_INLINE_ENABLED = true;
+  // ⚠️ 2026-08 중요한 수정: 예전에는 hls.js가 치명적 오류를 한 번만 알려도 즉시
+  // "이 카메라는 영상을 불러올 수 없습니다"로 넘어갔다. 그런데 실시간 스트림은 켜지는
+  // 데 몇 초가 걸리고 그동안 조각이 아직 준비되지 않아 오류가 나는 일이 흔하다.
+  // 실제로 제주 카메라가 "실패"로 표시된 뒤 화면을 그대로 두었더니 저절로 재생됐다.
+  // hls.js에는 이런 경우를 위한 표준 복구 수단이 있는데 우리가 쓰지 않고 있었다.
+  //   네트워크 오류 -> startLoad()로 다시 불러오기
+  //   미디어 오류   -> recoverMediaError()로 디코더 복구
+  // 몇 번 시도해도 안 될 때만 실패로 처리한다. 이 손해는 제주뿐 아니라 경기·UTIC
+  // 도심·충주 등 모든 실시간 영상에 함께 있었다.
+  var CCTV_LIVE_MAX_RETRY = 4;      // 네트워크 재시도 횟수
+  var CCTV_LIVE_MAX_MEDIA_RETRY = 2; // 디코더 복구 횟수
+  var CCTV_LIVE_RETRY_DELAY_MS = 1200;
+
   function playCctvLiveInline(streamUrl, videoEl, onError) {
     stopCctvPlayback();
     if (videoEl.canPlayType('application/vnd.apple.mpegurl')) {
@@ -2746,12 +2803,33 @@
       videoEl.play().catch(function() {});
       videoEl.onerror = function() { if (onError) onError(); };
     } else if (window.Hls && Hls.isSupported()) {
+      var netRetry = 0, mediaRetry = 0, gaveUp = false;
       currentCctvHls = new Hls();
       currentCctvHls.loadSource(streamUrl);
       currentCctvHls.attachMedia(videoEl);
       currentCctvHls.on(Hls.Events.MANIFEST_PARSED, function() { videoEl.play().catch(function() {}); });
+      currentCctvHls.on(Hls.Events.FRAG_LOADED, function() {
+        // 조각이 하나라도 들어오면 시작에 성공한 것이므로 재시도 횟수를 되돌린다
+        netRetry = 0; mediaRetry = 0;
+      });
       currentCctvHls.on(Hls.Events.ERROR, function(evt, data) {
-        if (data && data.fatal && onError) onError();
+        if (!data || !data.fatal || gaveUp) return;
+        var hls = currentCctvHls;
+        if (!hls) return;
+        if (data.type === Hls.ErrorTypes.NETWORK_ERROR && netRetry < CCTV_LIVE_MAX_RETRY) {
+          netRetry++;
+          console.warn('[CCTV] 영상 시작 대기 중 재시도 ' + netRetry + '/' + CCTV_LIVE_MAX_RETRY);
+          setTimeout(function() { try { if (currentCctvHls === hls) hls.startLoad(); } catch (e) {} }, CCTV_LIVE_RETRY_DELAY_MS);
+          return;
+        }
+        if (data.type === Hls.ErrorTypes.MEDIA_ERROR && mediaRetry < CCTV_LIVE_MAX_MEDIA_RETRY) {
+          mediaRetry++;
+          console.warn('[CCTV] 디코더 복구 시도 ' + mediaRetry + '/' + CCTV_LIVE_MAX_MEDIA_RETRY);
+          try { hls.recoverMediaError(); } catch (e) {}
+          return;
+        }
+        gaveUp = true;
+        if (onError) onError();
       });
     } else if (onError) {
       onError(); // 이 브라우저는 HLS 재생 자체를 지원하지 않음 - 새 창 링크로 대체
