@@ -395,7 +395,7 @@
   // 생기면 재사용 가능) index.html에서는 호출하지 않음.
   // 배포된 파일이 최신인지 콘솔에서 한 줄로 확인하기 위한 표시.
   // 같은 이유로 여러 번 헛돌아서(옛 파일이 올라간 줄 모르고 디버깅) 넣어둠.
-  var NOWTHERE_VERSION = 'v2026-08-15a (제주277·충주43·기상청·관리자콘솔)';
+  var NOWTHERE_VERSION = 'v2026-08-15b (제주 중계 전환)';
   console.log('[NowThere] ' + NOWTHERE_VERSION);
 
   var CCTV_PROXY_BASE_URL = 'https://api.nowthere.net';
@@ -1945,6 +1945,9 @@
       // 정지영상도 없었다면 "이 카메라는 지금 영상을 볼 수 없다"는 명확한 안내와 함께
       // 원하는 사람만 눌러볼 수 있는 링크만 남겨둠(자동 새 창 없음).
       function showLiveFailure() {
+        // 재생이 실패했으면 시청 제한 타이머도 의미가 없으므로 함께 정리한다
+        // (안 그러면 실패 안내 뒤에 "30초 후 멈췄습니다"가 겹쳐 뜬다 - 실제 발생)
+        if (cctvLiveLimitTimer) { clearTimeout(cctvLiveLimitTimer); cctvLiveLimitTimer = null; }
         if (video) video.style.display = 'none';
         if (!errMsg) return;
         errMsg.style.display = 'block';
