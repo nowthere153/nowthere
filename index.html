@@ -396,7 +396,7 @@
   // 생기면 재사용 가능) index.html에서는 호출하지 않음.
   // 배포된 파일이 최신인지 콘솔에서 한 줄로 확인하기 위한 표시.
   // 같은 이유로 여러 번 헛돌아서(옛 파일이 올라간 줄 모르고 디버깅) 넣어둠.
-  var NOWTHERE_VERSION = 'v2026-08-15h (서버 상태 점검 지역별 표본 · 미분류 라벨)';
+  var NOWTHERE_VERSION = 'v2026-08-15i (날씨를 팝업 상단으로 · 관측 경과시간 표시)';
   console.log('[NowThere] ' + NOWTHERE_VERSION);
 
   var CCTV_PROXY_BASE_URL = 'https://api.nowthere.net';
@@ -1160,9 +1160,33 @@
   // 있든 없든 "지금 거기 비 오나"에 답할 수 있다. 서버(/api/weather-now)가 대신
   // 호출하므로 인증키는 브라우저에 노출되지 않고, 같은 격자는 서버가 캐시해서
   // 기상청 호출이 사용자 수만큼 늘지 않는다.
-  function weatherLinePlaceholder(id) {
+  // prominent=true 이면 팝업 맨 위에 카드 형태로 크게 보여준다.
+  // ⚠️ 2026-08: CCTV 팝업에서 날씨를 맨 아래에 두었더니 영상을 다 보고 스크롤해야
+  // 나왔다. "지금 거기 비 와?"가 이 서비스의 본질이므로 위로 올린다.
+  function weatherLinePlaceholder(id, prominent) {
+    if (prominent) {
+      return '<div id="' + id + '" style="margin:0 0 10px;padding:10px 12px;border-radius:10px;' +
+        'background:#f8fafc;border:1px solid #e2e8f0;font-size:13px;color:#94a3b8;">' +
+        '지금 이 지점 날씨를 확인하는 중…</div>';
+    }
     return '<p id="' + id + '" style="margin:8px 0 0;font-size:12.5px;color:#94a3b8;">' +
       '지금 이 지점 날씨를 확인하는 중…</p>';
+  }
+
+  // 기상청 관측 시각이 얼마나 지난 것인지 계산한다.
+  // 초단기실황은 매시 정시 관측값을 40분에 공개하므로 최대 1시간 40분 전 상태일 수
+  // 있다. 화면의 영상과 어긋나 보이는 일이 실제로 있었으므로(2026-08 실사용), 몇 시
+  // 관측인지만 흐리게 적어두지 말고 "얼마나 지난 값인지"를 분명히 말한다.
+  function observationAgeText(baseDate, baseTime) {
+    if (!baseDate || !baseTime || baseDate.length < 8) return '';
+    var y = +baseDate.slice(0, 4), mo = +baseDate.slice(4, 6), d = +baseDate.slice(6, 8);
+    var h = +baseTime.slice(0, 2);
+    var baseMs = Date.UTC(y, mo - 1, d, h, 0, 0);          // 한국시각 값을 UTC 자리에 그대로 둠
+    var nowMs = Date.now() + 9 * 60 * 60 * 1000;           // 지금을 같은 방식으로 맞춤
+    var min = Math.round((nowMs - baseMs) / 60000);
+    if (min < 0 || min > 24 * 60) return '';
+    if (min < 60) return min + '분 전 관측';
+    return Math.floor(min / 60) + '시간 ' + (min % 60) + '분 전 관측';
   }
 
   function fillWeatherLine(id, lat, lng) {
@@ -1186,9 +1210,20 @@
         if (w.temp != null) parts.push(w.temp + '℃');
         if (w.humidity != null) parts.push('습도 ' + w.humidity + '%');
         var hh = (w.baseTime || '').slice(0, 2);
-        el2.innerHTML = parts.join(' · ') +
-          (hh ? ' <span style="color:#cbd5e1;">· 기상청 ' + hh + '시 관측</span>' : '');
-        el2.style.color = w.raining ? '#2563eb' : '#64748b';
+        var age = observationAgeText(w.baseDate, w.baseTime);
+        var stamp = hh ? '기상청 ' + hh + '시 관측' + (age ? ' · ' + age : '') : '';
+        var prominent = el2.tagName === 'DIV';
+        if (prominent) {
+          el2.innerHTML =
+            '<div style="font-size:14.5px;font-weight:700;color:' + (w.raining ? '#2563eb' : '#334155') + ';">' +
+            parts.join(' · ') + '</div>' +
+            (stamp ? '<div style="margin-top:3px;font-size:11.5px;color:#94a3b8;">' + stamp +
+              ' · 정시 관측값이라 화면과 다를 수 있습니다</div>' : '');
+        } else {
+          el2.innerHTML = parts.join(' · ') +
+            (stamp ? ' <span style="color:#cbd5e1;">· ' + stamp + '</span>' : '');
+          el2.style.color = w.raining ? '#2563eb' : '#64748b';
+        }
       })
       .catch(function(err) {
         console.error('[날씨] 실황 조회 실패:', err);
@@ -1954,7 +1989,8 @@
       // 변경 - 실제 배포 환경(HTTPS)에서 재생 성공을 확인함(CCTV_LIVE_INLINE_ENABLED
       // 참고). 실패 시(구형 브라우저, 특정 카메라 오류 등)에는 자동으로 정지영상+새 창
       // 링크로 되돌아감(아래 onError 콜백).
-      var body = '<p style="margin:0 0 10px;color:#888;font-size:12.5px;">' + name + '</p>' +
+      var body = '<p style="margin:0 0 8px;color:#888;font-size:12.5px;">' + name + '</p>' +
+        weatherLinePlaceholder('cctvWeatherLine', true) +
         '<div style="position:relative;">' +
         '<img id="cctvSnapshotImg" style="width:100%;max-width:480px;aspect-ratio:4/3;' +
         'object-fit:cover;border-radius:8px;background:#eee;display:block;" />' +
@@ -1971,8 +2007,7 @@
         '<p id="cctvSnapshotErr" style="display:none;margin-top:8px;font-size:12.5px;color:#c0392b;"></p>' +
         '<p id="cctvCaption" style="margin:8px 0 0;font-size:11.5px;color:#aaa;">지금 보이는 화면은 정지영상이며 약 20초마다 자동으로 새로고침됩니다' +
         (streamUrl ? ' · 실시간으로 보려면 우측 상단의 LIVE 보기 버튼을 눌러주세요' : '') +
-        '</p>' +
-        weatherLinePlaceholder('cctvWeatherLine');
+        '</p>';
       openModal('이곳 날씨도 확인', body, weatherIconSvgDataUrl());
       // 화면이 흐리거나 밤이라 영상만으로는 판단이 어려울 때를 위한 보완 정보
       fillWeatherLine('cctvWeatherLine', lat, lng);
