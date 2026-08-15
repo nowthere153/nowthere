@@ -396,7 +396,7 @@
   // 생기면 재사용 가능) index.html에서는 호출하지 않음.
   // 배포된 파일이 최신인지 콘솔에서 한 줄로 확인하기 위한 표시.
   // 같은 이유로 여러 번 헛돌아서(옛 파일이 올라간 줄 모르고 디버깅) 넣어둠.
-  var NOWTHERE_VERSION = 'v2026-08-15g (관리자 로그아웃 · 커버리지 오탐 제외 · 소스 라벨 갱신)';
+  var NOWTHERE_VERSION = 'v2026-08-15h (서버 상태 점검 지역별 표본 · 미분류 라벨)';
   console.log('[NowThere] ' + NOWTHERE_VERSION);
 
   var CCTV_PROXY_BASE_URL = 'https://api.nowthere.net';
@@ -2528,7 +2528,7 @@
       '<div style="font-weight:700;margin:16px 0 6px;">3. 등록 현황</div>' +
       '<div style="font-size:12.5px;color:#475569;">전체 ' + sharedSpots.length + '건' +
       (reported ? ' · 신고 누적 ' + reported + '건' : '') + '<br>' +
-      Object.keys(counts).map(function(k) { return categoryLabel(k) + ' ' + counts[k]; }).join(' · ') +
+      Object.keys(counts).map(function(k) { return (categoryLabel(k) || '미분류') + ' ' + counts[k]; }).join(' · ') +
       '</div>' +
 
       '<div style="font-weight:700;margin:16px 0 6px;">4. 커버리지 현황</div>' +
@@ -2629,12 +2629,15 @@
     // 서버가 살아있는지, 각 소스가 실제로 응답하는지 관리자 화면에서 바로 확인
     var el = document.getElementById('admHealth');
     if (el && CCTV_PROXY_BASE_URL) {
-      var probe = '?minX=126.95&maxX=127.05&minY=37.53&maxY=37.60';
+      // ⚠️ 2026-08 수정: 예전에는 네 소스를 모두 "서울 도심" 한 좌표로 찔러봤다.
+      // 그런데 국토부(고속도로·국도)와 지자체(충주·제주·울산) 카메라는 서울 도심에
+      // 없는 것이 정상이라 늘 0대로 나왔고, 소스가 죽은 것과 구분이 되지 않았다.
+      // 점검은 "그 소스가 실제로 카메라를 가진 지역"에서 해야 의미가 있다.
       var checks = [
-        ['국토부', '/api/its-cctv' + probe],
-        ['UTIC', '/api/utic-snapshot-list' + probe],
-        ['지자체', '/api/local-cctv' + probe],
-        ['경기', '/api/gg-cctv' + probe]
+        ['국토부(천안 부근 고속·국도)', '/api/its-cctv?minX=127.05&maxX=127.25&minY=36.75&maxY=36.95'],
+        ['UTIC(서울 도심)', '/api/utic-snapshot-list?minX=126.95&maxX=127.05&minY=37.53&maxY=37.60'],
+        ['지자체(울산)', '/api/local-cctv?minX=129.20&maxX=129.45&minY=35.45&maxY=35.65'],
+        ['경기(수원)', '/api/gg-cctv?minX=126.95&maxX=127.10&minY=37.20&maxY=37.35']
       ];
       Promise.all(checks.map(function(c) {
         return fetch(CCTV_PROXY_BASE_URL + c[1]).then(function(r) {
@@ -2645,7 +2648,11 @@
         }).catch(function(e) { return c[0] + ' 실패(' + e.message + ')'; });
       })).then(function(rows) {
         var el2 = document.getElementById('admHealth');
-        if (el2) { el2.textContent = rows.join(' · '); el2.style.color = '#475569'; }
+        if (el2) {
+          el2.innerHTML = rows.join('<br>') +
+            '<br><span style="color:#94a3b8;">소스마다 카메라가 실제로 있는 지역을 표본으로 점검합니다. 0대나 실패가 보이면 그 소스가 응답하지 않는 것입니다.</span>';
+          el2.style.color = '#475569';
+        }
       });
     }
   }
