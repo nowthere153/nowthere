@@ -396,7 +396,7 @@
   // 생기면 재사용 가능) index.html에서는 호출하지 않음.
   // 배포된 파일이 최신인지 콘솔에서 한 줄로 확인하기 위한 표시.
   // 같은 이유로 여러 번 헛돌아서(옛 파일이 올라간 줄 모르고 디버깅) 넣어둠.
-  var NOWTHERE_VERSION = 'v2026-08-15s (hls.js 우선 재생 - 제주 재생 실패 수정)';
+  var NOWTHERE_VERSION = 'v2026-08-15t (죽은 정지영상 제거 · 중복 재생 방지)';
   console.log('[NowThere] ' + NOWTHERE_VERSION);
 
   var CCTV_PROXY_BASE_URL = 'https://api.nowthere.net';
@@ -2174,13 +2174,20 @@
             var again = document.getElementById('cctvAgainBtn');
             if (again) again.addEventListener('click', function() {
               errMsg.style.display = 'none';
+              liveStarted = false; // 다시 보기는 의도적인 재시작이므로 잠금을 푼다
               switchToLive();
             });
           }, entry.maxSeconds * 1000);
         }
       }
 
+      // ⚠️ 2026-08: 경기 카메라에서 재생이 두 번 시작되는 일이 있었다. liveFirst로 이미
+      // 실시간을 열었는데, 뒤늦게 실패한 정지영상이 img.onerror를 통해 또 한 번 열었다.
+      // 두 번째가 첫 번째를 끊고 다시 시작하니 재생이 눈에 띄게 늦어졌다. 한 번만 연다.
+      var liveStarted = false;
       function switchToLive() {
+        if (liveStarted) return;
+        liveStarted = true;
         if (cctvImageRefreshTimer) { clearInterval(cctvImageRefreshTimer); cctvImageRefreshTimer = null; }
         // ⚠️ 2026-08: LIVE 버튼은 streamUrl이 있을 때만 만들어진다. 제주처럼 주소를
         // 나중에 받아오는 카메라는 streamUrl이 비어 있어 버튼이 존재하지 않으므로
@@ -2221,7 +2228,7 @@
         playCctvLiveInline(playUrl, video, showLiveFailure);
       }
       if (liveBtn && streamUrl) {
-        liveBtn.addEventListener('click', switchToLive);
+        liveBtn.addEventListener('click', function() { liveStarted = false; switchToLive(); });
       }
       // 서버가 전수 검사에서 "사진은 죽었고 실시간만 살아있다"고 표시한 카메라는
       // 깨진 이미지를 잠깐 보여줬다가 넘어가지 말고 처음부터 실시간으로 연다.
