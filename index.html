@@ -419,7 +419,7 @@
   // 생기면 재사용 가능) index.html에서는 호출하지 않음.
   // 배포된 파일이 최신인지 콘솔에서 한 줄로 확인하기 위한 표시.
   // 같은 이유로 여러 번 헛돌아서(옛 파일이 올라간 줄 모르고 디버깅) 넣어둠.
-  var NOWTHERE_VERSION = 'v2026-08-16f (지도 컨트롤 오른쪽 세로 · CCTV·SKY 글자 표기)';
+  var NOWTHERE_VERSION = 'v2026-08-16g (검색 시 지도 이동 복원)';
   console.log('[NowThere] ' + NOWTHERE_VERSION);
 
   var CCTV_PROXY_BASE_URL = 'https://api.nowthere.net';
@@ -2763,6 +2763,12 @@
   }
 
   function openDistrictWeatherView(query, center) {
+    // ⚠️ 2026-08 회귀 수정: 검색과 화면보기를 하나로 합치면서 "지도가 그 지역으로
+    // 이동하는 것"을 함께 옮기지 않아, 제주를 검색해도 지도가 서울에 머무는 문제가
+    // 생겼다(실사용 지적). 화면을 닫았을 때 그 지역에 있어야 이어서 둘러볼 수 있다.
+    // 팝업 뒤 배경 지도도 그 지역을 비추고 있어야 결과가 어디인지 납득된다.
+    mapSetCenter(center.lat, center.lng);
+    mapSetLevel(6);
     var north = offsetLatLng(center.lat, center.lng, DISTRICT_OFFSET_KM, 0);
     var south = offsetLatLng(center.lat, center.lng, -DISTRICT_OFFSET_KM, 0);
     var east = offsetLatLng(center.lat, center.lng, 0, DISTRICT_OFFSET_KM);
