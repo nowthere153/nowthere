@@ -16,45 +16,82 @@
   body { font-family: -apple-system, "Apple SD Gothic Neo", sans-serif; }
   #map { width: 100%; height: 100vh; }
 
+  /* ⚠️ 2026-08 인터페이스 개편(ID103 1차 시험).
+     예전에는 상단에 컨트롤 13개가 몰려 지도의 28%를 덮고 일부는 겹쳐 잘렸다(현장·우리가게).
+     정작 엄지가 닿는 아래쪽은 비어 있었다. 밖에 두는 자리를 "검색 한 줄 + 주 행동 셋"으로
+     제한하고 나머지는 더보기 시트로 넣는다. 자리에 제한이 있어야 기능이 늘 때마다
+     "밖에 나올 자격이 있나"를 판단하게 되고, 그 제약이 화면을 지켜준다.
+     검색과 날씨보기를 하나로 합친 것도 이 개편의 핵심이다 - 예전에는 검색하면 지도만
+     움직이고 날씨보기를 또 눌러야 해서 두 동작의 관계가 보이지 않았다. */
   #searchBox {
-    position: absolute; top: 96px; left: 50%; transform: translateX(-50%);
-    z-index: 10; display: flex; gap: 8px; width: 90%; max-width: 420px;
+    position: absolute; top: 62px; left: 50%; transform: translateX(-50%);
+    z-index: 10; display: flex; gap: 8px; width: 92%; max-width: 460px;
+    background: #fff; border-radius: 16px; padding: 6px 6px 6px 14px;
+    box-shadow: 0 3px 14px rgba(0,0,0,0.18); align-items: center;
   }
+  #searchBox .sIcon { font-size: 15px; flex: 0 0 auto; opacity: .75; }
   #searchInput {
-    flex: 1; min-width: 0; padding: 12px 16px; border-radius: 24px; border: none;
-    box-shadow: 0 2px 10px rgba(0,0,0,0.2); font-size: 15px; outline: none;
+    flex: 1; min-width: 0; padding: 10px 4px; border: none; font-size: 15px; outline: none;
+    background: transparent;
   }
   #searchBtn {
-    flex: 0 0 auto; padding: 12px 18px; border-radius: 24px; border: none; background: #3b82f6;
-    color: white; font-weight: bold; cursor: pointer; box-shadow: 0 2px 10px rgba(0,0,0,0.2);
+    flex: 0 0 auto; padding: 10px 16px; border-radius: 12px; border: none; background: #e11d48;
+    color: white; font-weight: 700; cursor: pointer; font-size: 14px;
   }
-  /* 날씨검색(ID73 구체화) - 기존 파란 검색 버튼과 다른 동작이라는 걸 색으로 구분(빨간 버튼).
-     검색창은 공유하되 버튼을 분리해 오조작(장소검색과 날씨검색 혼동)을 방지 */
-  #weatherSearchBtn {
-    flex: 0 0 auto; padding: 12px 14px; border-radius: 24px; border: none; background: #e11d48;
-    color: white; font-weight: bold; cursor: pointer; box-shadow: 0 2px 10px rgba(0,0,0,0.2);
-    font-size: 13px; white-space: nowrap;
+
+  /* 하단 주 행동 바 - 엄지가 가장 편하게 닿는 자리 */
+  #actionBar {
+    position: absolute; left: 12px; right: 12px; bottom: 12px; z-index: 13;
+    background: #fff; border-radius: 16px; box-shadow: 0 3px 16px rgba(0,0,0,0.2);
+    display: flex; overflow: hidden;
   }
+  #actionBar button {
+    flex: 1; border: none; background: transparent; cursor: pointer;
+    padding: 9px 4px 8px; font-size: 11.5px; font-weight: 700; color: #374151;
+    display: flex; flex-direction: column; align-items: center; gap: 2px;
+  }
+  #actionBar button span { font-size: 18px; line-height: 1; }
+  #actionBar button.primary { color: #e11d48; }
+  #actionBar button:active { background: #f3f4f6; }
+
+  /* 더보기 시트 */
+  #moreSheet { position: absolute; inset: 0; z-index: 30; display: none; }
+  #moreSheet.show { display: block; }
+  #moreSheet .dim { position: absolute; inset: 0; background: rgba(17,24,39,0.32); }
+  #moreSheet .panel {
+    position: absolute; left: 0; right: 0; bottom: 0; background: #fff;
+    border-radius: 18px 18px 0 0; box-shadow: 0 -4px 22px rgba(0,0,0,0.22);
+    padding: 8px 16px 18px; max-height: 76%; overflow-y: auto;
+  }
+  #moreSheet .grab { width: 38px; height: 4px; background: #d1d5db; border-radius: 2px; margin: 2px auto 10px; }
+  #moreSheet h4 { margin: 14px 0 4px; font-size: 11px; color: #94a3b8; font-weight: 700; }
+  #moreSheet .it {
+    display: flex; align-items: center; gap: 10px; padding: 11px 2px; font-size: 14px;
+    border-bottom: 1px solid #f1f5f9; cursor: pointer; color: #1f2937;
+  }
+  #moreSheet .it .rt { margin-left: auto; font-size: 12px; color: #9ca3af; font-weight: 700; }
+  #moreSheet .it:active { background: #f9fafb; }
 
   #header {
     position: absolute; top: 0; left: 0; width: 100%; z-index: 11;
-    background: linear-gradient(180deg, rgba(0,0,0,0.42), rgba(0,0,0,0));
-    padding: 14px 16px 20px; color: white; box-sizing: border-box;
+    background: linear-gradient(180deg, rgba(0,0,0,0.5), rgba(0,0,0,0));
+    padding: 9px 14px 26px; color: white; box-sizing: border-box;
     pointer-events: none;
   }
-  #header .brand { font-size: 20px; font-weight: 800; letter-spacing: -0.5px; pointer-events: auto; display: inline-flex; align-items: center; gap: 6px; cursor: default; }
-  #header .brand .brandIcon { width: 16px; height: 20px; flex: 0 0 auto; }
-  #header .tagline { font-size: 12.5px; opacity: 0.9; margin-top: 2px; }
+  #header .brand { font-size: 16.5px; font-weight: 800; letter-spacing: -0.5px; pointer-events: auto; display: inline-flex; align-items: center; gap: 5px; cursor: default; }
+  #header .brand .brandIcon { width: 13px; height: 17px; flex: 0 0 auto; }
+  #header .tagline { font-size: 11.5px; opacity: 0.92; margin-top: 1px; }
+  /* ⚠️ ID103: 등록이 가능하다는 "인식"을 첫 화면에 한 줄로 남긴다. 버튼으로 밀어붙이지
+     않되 그 생각 자체가 일어나게 하는 자리다(사용자의 깨달음 순서 3단계). */
+  #header .invite { font-size: 11px; opacity: 0.85; margin-top: 2px; }
 
-  #registerBtn {
-    position: absolute; top: 16px; right: 16px; z-index: 12;
-    background: #111827; color: white; border: none; padding: 10px 14px;
-    border-radius: 20px; font-size: 13px; font-weight: 600; cursor: pointer;
-    box-shadow: 0 2px 10px rgba(0,0,0,0.25);
-  }
+  /* registerBtn 은 하단 주 행동 바로 이동(ID103) */
 
+  /* ⚠️ ID103: 현위치 버튼과 하단 "지금 여기"가 같은 일을 다른 자리에서 해 혼란을 줬다.
+     평소에는 하단 바가 그 역할을 하고, 이 버튼은 등록 위치를 지정할 때만 나타난다. */
   #locateBtn {
-    position: absolute; bottom: 90px; right: 16px; z-index: 12;
+    display: none; align-items: center; justify-content: center;
+    position: absolute; bottom: 108px; right: 16px; z-index: 12;
     width: 44px; height: 44px; border-radius: 50%; border: none;
     background: white; font-size: 20px; cursor: pointer;
     box-shadow: 0 2px 10px rgba(0,0,0,0.25);
@@ -69,13 +106,13 @@
     box-shadow: 0 2px 10px rgba(0,0,0,0.2);
     display: flex; align-items: center; justify-content: center;
   }
-  #zoomInBtn { bottom: 190px; }
-  #zoomOutBtn { bottom: 142px; }
+  #zoomInBtn { bottom: 200px; }
+  #zoomOutBtn { bottom: 156px; }
 
   /* 지도 타입(일반/스카이뷰) 전환 버튼 - 카카오 기본 컨트롤이 모바일에서 아예 안 보이는
      문제가 있어 직접 만든 버튼으로 교체 (ID 65 후속 조정) */
   #mapTypeBtn {
-    position: absolute; bottom: 16px; left: 16px; z-index: 12;
+    position: absolute; bottom: 82px; left: 16px; z-index: 12;
     background: white; color: #333; border: 1px solid #ddd; padding: 8px 12px;
     border-radius: 16px; font-size: 12.5px; font-weight: 600; cursor: pointer;
     box-shadow: 0 2px 8px rgba(0,0,0,0.15);
@@ -83,41 +120,20 @@
 
   /* CCTV 연동 토글 - 관리자 설정(cctvEnabled)이 켜져 있거나 관리자 모드일 때만 노출 (ID 69) */
   #cctvToggleBtn {
-    position: absolute; bottom: 60px; left: 16px; z-index: 12; display: none;
+    position: absolute; bottom: 82px; left: 130px; z-index: 12; display: none;
     background: white; color: #7c3aed; border: 1px solid #ddd; padding: 8px 12px;
     border-radius: 16px; font-size: 12.5px; font-weight: 600; cursor: pointer;
     box-shadow: 0 2px 8px rgba(0,0,0,0.15);
   }
   /* 관리자 전용: 전체 사용자 공개 여부(cctvEnabled) 조정 */
   #cctvAdminBtn {
-    position: absolute; bottom: 60px; left: 140px; z-index: 12; display: none;
+    position: absolute; bottom: 82px; left: 236px; z-index: 12; display: none;
     background: white; color: #7c3aed; border: 1px solid #ddd; padding: 8px 10px;
     border-radius: 16px; font-size: 12.5px; font-weight: 600; cursor: pointer;
     box-shadow: 0 2px 8px rgba(0,0,0,0.15);
   }
 
-  #myJourneysBtn {
-    position: absolute; top: 60px; right: 16px; z-index: 12;
-    background: white; color: #4338ca; border: 1px solid #ddd; padding: 8px 12px;
-    border-radius: 16px; font-size: 12.5px; font-weight: 600; cursor: pointer;
-    box-shadow: 0 2px 8px rgba(0,0,0,0.15);
-  }
-
-  #recentReportsBtn {
-    position: absolute; top: 104px; right: 16px; z-index: 12;
-    background: white; color: #c2410c; border: 1px solid #fecaca; padding: 8px 12px;
-    border-radius: 16px; font-size: 12.5px; font-weight: 600; cursor: pointer;
-    box-shadow: 0 2px 8px rgba(0,0,0,0.15);
-  }
-
-  /* 전국보기(ID73 구체화) - 로그인 없이 누구나 쓰는 공개 기능이라 다른 상단 버튼들과
-     같은 줄에 항상 노출(CCTV 토글처럼 관리자 설정에 따라 숨겨지지 않음) */
-  #nationwideBtn {
-    position: absolute; top: 148px; right: 16px; z-index: 12;
-    background: white; color: #2563eb; border: 1px solid #ddd; padding: 8px 12px;
-    border-radius: 16px; font-size: 12.5px; font-weight: 600; cursor: pointer;
-    box-shadow: 0 2px 8px rgba(0,0,0,0.15);
-  }
+  /* myJourneysBtn·recentReportsBtn·nationwideBtn 은 더보기 시트로 이동(ID103) */
   .nwGrid {
     display: grid; grid-template-columns: repeat(auto-fill, minmax(120px, 1fr)); gap: 10px;
   }
@@ -142,10 +158,12 @@
   }
   #placingBanner.show { display: block; }
 
+  /* ⚠️ ID103: 지도 위에 떠 있던 카테고리 필터를 더보기 시트 안으로 옮겼다.
+     지금은 등록이 몇 건뿐이라 첫 화면에서 이 필터가 하는 일이 거의 없고, 성격상
+     "내 기록을 고르는 것"이라 둘러보기가 아니라 안쪽에 있는 것이 맞다. */
   #filterBar {
-    position: absolute; top: 150px; left: 50%; transform: translateX(-50%);
-    z-index: 10; display: flex; gap: 6px; flex-wrap: nowrap; justify-content: flex-start;
-    width: 92%; max-width: 460px;
+    display: flex; gap: 6px; flex-wrap: nowrap; justify-content: flex-start;
+    width: 100%; margin: 4px 0 2px;
     overflow-x: auto; -webkit-overflow-scrolling: touch;
     /* 마지막 칩의 둥근 테두리·그림자가 스크롤 컨테이너 오른쪽 경계에서 잘리는 문제 방지 -
        오른쪽에 여유 패딩을 줘서 box-shadow가 잘리지 않게 함(관리자 모드는 칩마다 등록건수
@@ -176,22 +194,16 @@
     #header .brand { font-size: 17px; }
     #header .tagline { font-size: 11px; }
     /* 우측 상단 버튼열(최근 제보 등)과 겹치지 않도록 가운데 정렬 대신 좌우 여백으로 폭을 계산 */
-    #searchBox { top: 86px; left: 12px; right: 122px; width: auto; transform: none; gap: 6px; }
-    #searchInput { padding: 10px 14px; font-size: 14px; }
-    #searchBtn { padding: 10px 14px; font-size: 13.5px; }
-    #weatherSearchBtn { padding: 10px 12px; font-size: 12px; }
-    #filterBar { top: 134px; width: 94%; }
-    #registerBtn { top: 12px; right: 10px; font-size: 12px; padding: 8px 11px; }
-    #myJourneysBtn { top: 50px; right: 10px; font-size: 11.5px; padding: 7px 10px; }
-    #recentReportsBtn { top: 90px; right: 10px; font-size: 11.5px; padding: 7px 10px; }
-    #nationwideBtn { top: 130px; right: 10px; font-size: 11.5px; padding: 7px 10px; }
+    #searchBox { top: 56px; left: 10px; right: 10px; width: auto; max-width: none; transform: none; }
+    #searchInput { padding: 9px 4px; font-size: 14.5px; }
+    #searchBtn { padding: 9px 14px; font-size: 13.5px; }
     #locateBtn { right: 10px; width: 40px; height: 40px; font-size: 17px; }
     #zoomInBtn, #zoomOutBtn { right: 12px; width: 36px; height: 36px; font-size: 17px; }
-    #zoomInBtn { bottom: 178px; }
-    #zoomOutBtn { bottom: 134px; }
-    #mapTypeBtn { left: 10px; bottom: 12px; font-size: 11.5px; padding: 7px 10px; }
-    #cctvToggleBtn { left: 10px; bottom: 56px; font-size: 11.5px; padding: 7px 10px; }
-    #cctvAdminBtn { left: 118px; bottom: 56px; font-size: 11.5px; padding: 7px 10px; }
+    #zoomInBtn { bottom: 152px; }
+    #zoomOutBtn { bottom: 110px; }
+    #mapTypeBtn { left: 10px; bottom: 76px; font-size: 11.5px; padding: 7px 10px; }
+    #cctvToggleBtn { left: 108px; bottom: 76px; font-size: 11.5px; padding: 7px 10px; }
+    #cctvAdminBtn { left: 196px; bottom: 76px; font-size: 11.5px; padding: 7px 10px; }
     /* 모바일에서는 76px 썸네일이 이미 충분히 잘 보인다는 피드백을 받아 기존 52px 유지 */
     .restoreChip { width: 52px; height: 52px; }
   }
@@ -304,13 +316,10 @@
     <circle cx="14" cy="14" r="6" fill="white"/>
   </svg>거기비와</div>
   <div class="tagline">혼자 보기 아까운, 지금 그곳의 모습</div>
+  <div class="invite">그리고 내 순간을 지도에 — 나만 보기도 됩니다</div>
 </div>
 
-<button id="registerBtn" title="지도를 길게 눌러도 바로 등록창이 열립니다">📍 지금 여기 보여주기</button>
-<button id="myJourneysBtn">🧭 내 기록 목록</button>
-<button id="recentReportsBtn">🚨 최근 제보</button>
-<button id="nationwideBtn">🌍 전국 CCTV 한눈에</button>
-<button id="locateBtn" title="현위치">🎯</button>
+<button id="locateBtn" title="현위치로 지정">🎯</button>
 <button id="zoomInBtn" title="확대">+</button>
 <button id="zoomOutBtn" title="축소">−</button>
 <button id="mapTypeBtn">🛰️ 스카이뷰</button>
@@ -319,12 +328,31 @@
 <div id="placingBanner">📍 지도를 클릭해서 위치를 지정해주세요 (확대·축소 후에도 다시 클릭하면 됩니다)</div>
 
 <div id="searchBox">
-  <input id="searchInput" type="text" placeholder="장소명이나 캠핑장 이름을 검색해보세요">
-  <button id="searchBtn">검색</button>
-  <button id="weatherSearchBtn" title="입력한 지역 중앙·동서남북 근처 CCTV 영상으로 날씨 확인">📹 CCTV로 날씨보기</button>
+  <span class="sIcon">🔎</span>
+  <input id="searchInput" type="text" placeholder="어디가 궁금하세요?">
+  <button id="searchBtn">보기</button>
 </div>
 
-<div id="filterBar"></div>
+<div id="actionBar">
+  <button id="hereBtn" class="primary"><span>☔</span>지금 여기</button>
+  <button id="registerBtn" title="지도를 길게 눌러도 바로 등록창이 열립니다"><span>📍</span>내 기록 남기기</button>
+  <button id="moreBtn"><span>☰</span>더보기</button>
+</div>
+
+<div id="moreSheet">
+  <div class="dim"></div>
+  <div class="panel">
+    <div class="grab"></div>
+    <h4>둘러보기</h4>
+    <div class="it" id="mNationwide">🌍 <b>전국 한눈에</b></div>
+    <div class="it" id="mRecent">🚨 <b>최근 제보</b></div>
+    <h4>내 것</h4>
+    <div class="it" id="mJourneys">🧭 <b>내 기록</b></div>
+    <h4>지도에서 고르기</h4>
+    <div id="filterBar"></div>
+    <div id="mAdminRow" class="it" style="display:none;">⚙️ <b>관리자 콘솔</b></div>
+  </div>
+</div>
 
 <div id="map"></div>
 <div id="statusMsg"></div>
@@ -396,7 +424,7 @@
   // 생기면 재사용 가능) index.html에서는 호출하지 않음.
   // 배포된 파일이 최신인지 콘솔에서 한 줄로 확인하기 위한 표시.
   // 같은 이유로 여러 번 헛돌아서(옛 파일이 올라간 줄 모르고 디버깅) 넣어둠.
-  var NOWTHERE_VERSION = 'v2026-08-16b (화면 불러오는 중 안내 · 대기 순서 표시)';
+  var NOWTHERE_VERSION = 'v2026-08-16c (인터페이스 1차 개편 — 검색 통합·하단 바·더보기 시트)';
   console.log('[NowThere] ' + NOWTHERE_VERSION);
 
   var CCTV_PROXY_BASE_URL = 'https://api.nowthere.net';
@@ -1705,9 +1733,35 @@
     });
   }
 
-  document.getElementById('searchBtn').addEventListener('click', searchPlace);
+  // ⚠️ ID103: 예전에는 [검색]이 지도만 옮기고 [CCTV로 날씨보기]를 또 눌러야 화면이 나왔다.
+  // 두 동작이 분리돼 있어 관계가 보이지 않았고, "충주를 치고 아래 버튼을 누르는 것인가"
+  // 하는 혼란이 있었다(실사용 지적). 검색 자체가 "그곳의 지금 모습 보여주기"가 되어야 한다.
+  // 입력(검색·지도·현위치)이 셋이어도 결과는 하나로 모인다.
+  function searchAndShow() {
+    var query = document.getElementById('searchInput').value.trim();
+    if (!query) { showStatus('⚠️ 보고 싶은 지역이나 장소를 입력해주세요'); return; }
+    // CCTV 기능이 공개되지 않은 상태면 예전처럼 지도 이동만 한다(안전한 실패)
+    if (!CCTV_ENABLED && !isAdmin) { searchPlace(); return; }
+    showStatus('🔎 "' + query + '" 지금 모습을 불러오는 중…');
+    var geocoder = new kakao.maps.services.Geocoder();
+    geocoder.addressSearch(query, function(result, status) {
+      if (status === kakao.maps.services.Status.OK && result[0]) {
+        openDistrictWeatherView(query, { lat: parseFloat(result[0].y), lng: parseFloat(result[0].x) });
+        return;
+      }
+      ps.keywordSearch(query, function(data, psStatus) {
+        if (psStatus === kakao.maps.services.Status.OK && data[0]) {
+          openDistrictWeatherView(query, { lat: parseFloat(data[0].y), lng: parseFloat(data[0].x) });
+        } else {
+          showStatus('⚠️ "' + query + '" 위치를 찾지 못했습니다. 다른 이름으로 시도해보세요.');
+        }
+      });
+    });
+  }
+
+  document.getElementById('searchBtn').addEventListener('click', searchAndShow);
   document.getElementById('searchInput').addEventListener('keypress', function(e) {
-    if (e.key === 'Enter') searchPlace();
+    if (e.key === 'Enter') searchAndShow();
   });
 
   // 5. 라이브/기록 등록 기능
@@ -1715,13 +1769,22 @@
   var pendingLatLng = null;
   var myLocationMarker = null;
 
+  // ⚠️ ID103: 현위치 버튼(🎯)은 평소에는 숨기고 위치를 지정하는 동안에만 보여준다.
+  // 평소에는 하단 "지금 여기"가 현위치 역할을 하므로 둘이 같은 일을 다르게 하는
+  // 혼란(실사용 지적)이 사라지고, 등록할 때 "현위치로 지정"이라는 쓸모는 남는다.
+  function setLocateBtnVisible(on) {
+    var b = document.getElementById('locateBtn');
+    if (b) b.style.display = on ? 'flex' : 'none';
+  }
   function enterPlacingMode() {
     placingMode = true;
     document.getElementById('placingBanner').classList.add('show');
+    setLocateBtnVisible(true);
   }
   function exitPlacingMode() {
     placingMode = false;
     document.getElementById('placingBanner').classList.remove('show');
+    setLocateBtnVisible(false);
   }
 
   // ================================================================
@@ -1827,10 +1890,10 @@
   document.getElementById('registerBtn').addEventListener('click', function() {
     if (placingMode) { exitPlacingMode(); return; } // 토글: 이미 등록모드면 끄기
     enterPlacingMode();
-    showStatus('📍 지도를 클릭해서 보여주고 싶은 위치를 지정해주세요');
+    showStatus('📍 지도에서 남기고 싶은 자리를 눌러주세요 (유튜브·인스타 링크만 있으면 됩니다)');
   });
 
-  document.getElementById('myJourneysBtn').addEventListener('click', function() {
+  function openMyJourneys() {
     var groups = getMyJourneyGroups();
     if (groups.length === 0) {
       openModal('🧭 내 기록 목록', '<p style="color:#888;">아직 만든 기록 여정이 없습니다. 등록할 때 "기록 이름"을 입력하면 여기 모입니다.</p>');
@@ -1847,7 +1910,7 @@
         openJourneyModal(g.name, g.spots);
       });
     });
-  });
+  }
 
   // 최근 현장(공익 제보) 목록 — 최신 등록순, 등록시각 강조 표시 (대관령 사례형 공익 제보 지원)
   // 등록량이 늘어날수록 오래된 제보까지 계속 섞여 나와 "최근"이라는 의미가 흐려지는 문제가 있어,
@@ -2634,7 +2697,54 @@
       NATIONWIDE_CITIES.map(function(c) { return { label: c.name, lat: c.lat, lng: c.lng }; }));
   }
 
-  document.getElementById('nationwideBtn').addEventListener('click', openNationwideView);
+  // ---------------------------------------------------------------------------
+  // 하단 주 행동 바 + 더보기 시트 (ID103)
+  // ---------------------------------------------------------------------------
+  var moreSheetEl = document.getElementById('moreSheet');
+  function openMoreSheet() {
+    var adminRow = document.getElementById('mAdminRow');
+    if (adminRow) adminRow.style.display = isAdmin ? 'flex' : 'none';
+    moreSheetEl.classList.add('show');
+  }
+  function closeMoreSheet() { moreSheetEl.classList.remove('show'); }
+
+  document.getElementById('moreBtn').addEventListener('click', openMoreSheet);
+  moreSheetEl.querySelector('.dim').addEventListener('click', closeMoreSheet);
+  document.getElementById('mNationwide').addEventListener('click', function() { closeMoreSheet(); openNationwideView(); });
+  document.getElementById('mRecent').addEventListener('click', function() { closeMoreSheet(); renderRecentReports(); });
+  document.getElementById('mJourneys').addEventListener('click', function() { closeMoreSheet(); openMyJourneys(); });
+  document.getElementById('mAdminRow').addEventListener('click', function() { closeMoreSheet(); renderAdminConsole(); });
+
+  // "지금 여기" - 현위치로 이동한 뒤 그 지점의 지금 모습을 바로 보여준다.
+  // ⚠️ 예전에는 현위치 버튼(지도만 이동)과 날씨보기(화면 표시)가 따로 있어 관계가
+  // 보이지 않았다. 입력 방식만 다를 뿐 사용자가 원하는 결과는 하나다.
+  document.getElementById('hereBtn').addEventListener('click', function() {
+    if (!navigator.geolocation) { showStatus('이 브라우저는 위치 확인을 지원하지 않습니다.'); return; }
+    if (!window.isSecureContext) {
+      showStatus('⚠️ 위치 기능은 https 주소에서만 동작합니다 — https://nowthere.net 으로 열어주세요.');
+      return;
+    }
+    showStatus('📡 지금 계신 곳을 확인하는 중…');
+    navigator.geolocation.getCurrentPosition(function(pos) {
+      var here = { lat: pos.coords.latitude, lng: pos.coords.longitude };
+      mapSetCenter(here.lat, here.lng);
+      mapSetLevel(5);
+      mapRemoveMarker(myLocationMarker);
+      myLocationMarker = mapCreateLocationMarker(here.lat, here.lng);
+      if (!CCTV_ENABLED && !isAdmin) { showStatus('현재 위치로 이동했습니다.'); return; }
+      openDistrictWeatherView('지금 계신 곳', here);
+    }, function(err) {
+      console.warn('[위치] 실패 코드=' + (err && err.code) + ' · ' + (err && err.message));
+      if (err && err.code === 1) {
+        showStatus('⚠️ 위치 권한이 거부되어 있습니다 — 주소창 왼쪽 자물쇠(또는 ⓘ)를 눌러 이 사이트의 위치 권한을 허용으로 바꿔주세요.');
+      } else if (err && err.code === 2) {
+        showStatus('⚠️ 위치를 찾지 못했습니다 — 실내이거나 신호가 약할 수 있습니다.');
+      } else {
+        showStatus('⚠️ 위치 확인이 오래 걸립니다 — 잠시 후 다시 시도해주세요.');
+      }
+    }, { enableHighAccuracy: true, timeout: 15000, maximumAge: 60000 });
+  });
+
 
   // ================================================================
   // 구/군 날씨검색 (ID73 구체화 ②, 2026-07) - 검색창에 지역명(예: 강남구)을 입력하고
@@ -2666,42 +2776,19 @@
       { label: '동', lat: east.lat, lng: east.lng },
       { label: '서', lat: west.lat, lng: west.lng }
     ];
-    var body = '<p style="margin:0 0 10px;color:#888;font-size:12.5px;">중앙·동서남북 근처 CCTV로 날씨·교통 상황을 확인해보세요</p>' +
+    var body = '<p style="margin:0 0 10px;color:#888;font-size:12.5px;">이 지역 중앙과 동서남북의 지금 화면입니다 · 눌러서 크게 보기</p>' +
       '<div id="districtGrid" class="nwGrid"></div>';
     // 제목에 검색어(query)를 그대로 넣지만, openModal의 제목 처리는 createTextNode를
     // 써서 HTML로 해석되지 않으므로(위 openModal 참고) 사용자가 입력한 임의 문자열이
     // 섞여도 안전함 - 본문(body)에는 검색어를 넣지 않음.
-    openModal('📹 ' + query + ' CCTV로 날씨보기', body, weatherIconSvgDataUrl());
+    openModal('☔ ' + query + ' 지금 모습', body, weatherIconSvgDataUrl());
     // 위와 동일한 이유로, 이 지역(query/center)을 다시 열 수 있도록 등록해둠 -
     // query/center를 클로저로 그대로 캡처하므로 재호출 시 동일한 지역이 다시 열림.
     currentReopenFn = function() { openDistrictWeatherView(query, center); };
     renderCctvGrid(document.getElementById('districtGrid'), points, true);
   }
 
-  document.getElementById('weatherSearchBtn').addEventListener('click', function() {
-    var query = document.getElementById('searchInput').value.trim();
-    if (!query) {
-      showStatus('⚠️ 먼저 지역명을 입력해주세요 (예: 강남구)');
-      return;
-    }
-    showStatus('🔎 "' + query + '" 위치 확인 중...');
-    var geocoder = new kakao.maps.services.Geocoder();
-    geocoder.addressSearch(query, function(result, status) {
-      if (status === kakao.maps.services.Status.OK && result[0]) {
-        openDistrictWeatherView(query, { lat: parseFloat(result[0].y), lng: parseFloat(result[0].x) });
-        return;
-      }
-      // 주소 검색으로 못 찾으면(예: 정식 행정구역명이 아닌 통칭) 장소(키워드) 검색으로
-      // 한 번 더 시도 - "강남구청"처럼 명칭이 섞여도 이쪽에서 잡히는 경우가 많음
-      ps.keywordSearch(query, function(data, psStatus) {
-        if (psStatus === kakao.maps.services.Status.OK && data[0]) {
-          openDistrictWeatherView(query, { lat: parseFloat(data[0].y), lng: parseFloat(data[0].x) });
-        } else {
-          showStatus('⚠️ "' + query + '" 위치를 찾지 못했습니다. 다른 지역명으로 시도해보세요.');
-        }
-      });
-    });
-  });
+  // weatherSearchBtn 은 검색 버튼에 통합됨(ID103) - searchAndShow 참고
 
   // 지도를 축소/이동해도 CCTV가 처음 켰을 때 보이던 지역에만 그대로 남아있던 문제 수정:
   // CCTV 레이어가 켜져 있는 동안은 지도 이동/확대·축소가 멈출 때마다 현재 보이는 범위로
@@ -2964,7 +3051,7 @@
       });
     }
   }
-  document.getElementById('recentReportsBtn').addEventListener('click', renderRecentReports);
+  // recentReportsBtn 은 더보기 시트로 이동(ID103)
 
   // 등록모드일 때는 지도를 몇 번을 클릭(줌 조정 후 재클릭 포함)해도 항상 등록창이 뜸
   mapOnClick(function(pos) {
