@@ -396,7 +396,7 @@
   // 생기면 재사용 가능) index.html에서는 호출하지 않음.
   // 배포된 파일이 최신인지 콘솔에서 한 줄로 확인하기 위한 표시.
   // 같은 이유로 여러 번 헛돌아서(옛 파일이 올라간 줄 모르고 디버깅) 넣어둠.
-  var NOWTHERE_VERSION = 'v2026-08-15q (재생 경로·실패 지점 전부 기록)';
+  var NOWTHERE_VERSION = 'v2026-08-15r (위치 실패 원인 구분 · https 안내)';
   console.log('[NowThere] ' + NOWTHERE_VERSION);
 
   var CCTV_PROXY_BASE_URL = 'https://api.nowthere.net';
@@ -2837,6 +2837,14 @@
       showStatus('이 브라우저는 위치 확인을 지원하지 않습니다.');
       return;
     }
+    // ⚠️ 2026-08: 위치 기능은 https에서만 동작한다. 휴대폰에서 주소창에 nowthere.net만
+    // 치면 http로 열리는 경우가 있는데, 그러면 브라우저가 위치를 아예 차단하면서도
+    // 겉으로는 "권한 거부"와 똑같이 보인다. 도메인 전환 직후 실사용에서 이 혼동이
+    // 발생했다(권한 문제로 오해). 원인을 구분해서 알려준다.
+    if (!window.isSecureContext) {
+      showStatus('⚠️ 위치 기능은 https 주소에서만 동작합니다 — https://nowthere.net 으로 열어주세요.');
+      return;
+    }
     showStatus('📡 위치 확인 중...');
     navigator.geolocation.getCurrentPosition(function(pos) {
       var here = { lat: pos.coords.latitude, lng: pos.coords.longitude };
@@ -2852,9 +2860,21 @@
       } else {
         showStatus('현재 위치로 이동했습니다.');
       }
-    }, function() {
-      showStatus('⚠️ 위치 확인 실패 — 위치 권한을 확인해주세요.');
-    });
+    }, function(err) {
+      // 실패 사유를 구분해서 안내한다. 도메인이 바뀌면 위치 권한은 새 주소에 대해
+      // 처음부터 다시 받아야 하는데(주소별로 따로 관리됨), 예전 주소에서 허용했던
+      // 기억 때문에 "권한은 이미 줬는데 왜 안 되지"로 헤매게 된다.
+      console.warn('[위치] 실패 코드=' + (err && err.code) + ' · ' + (err && err.message));
+      var msg = '⚠️ 위치 확인 실패 — 위치 권한을 확인해주세요.';
+      if (err && err.code === 1) {
+        msg = '⚠️ 위치 권한이 거부되어 있습니다 — 주소창 왼쪽 자물쇠(또는 ⓘ)를 눌러 이 사이트의 위치 권한을 허용으로 바꿔주세요.';
+      } else if (err && err.code === 2) {
+        msg = '⚠️ 위치를 찾지 못했습니다 — 실내이거나 신호가 약할 수 있습니다. 잠시 후 다시 시도해주세요.';
+      } else if (err && err.code === 3) {
+        msg = '⚠️ 위치 확인이 오래 걸립니다 — 잠시 후 다시 시도해주세요.';
+      }
+      showStatus(msg);
+    }, { enableHighAccuracy: true, timeout: 15000, maximumAge: 60000 });
   });
 
   var selectedCategory = null;
