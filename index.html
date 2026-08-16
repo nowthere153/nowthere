@@ -396,7 +396,7 @@
   // 생기면 재사용 가능) index.html에서는 호출하지 않음.
   // 배포된 파일이 최신인지 콘솔에서 한 줄로 확인하기 위한 표시.
   // 같은 이유로 여러 번 헛돌아서(옛 파일이 올라간 줄 모르고 디버깅) 넣어둠.
-  var NOWTHERE_VERSION = 'v2026-08-16a (사진 없는 카메라도 영상에서 한 장면 떠서 표시)';
+  var NOWTHERE_VERSION = 'v2026-08-16b (화면 불러오는 중 안내 · 대기 순서 표시)';
   console.log('[NowThere] ' + NOWTHERE_VERSION);
 
   var CCTV_PROXY_BASE_URL = 'https://api.nowthere.net';
@@ -2397,8 +2397,15 @@
   // 전국보기는 이미 도시명이 label이라 그대로 둠(호출 시 useDongLabel 생략).
   // 사진이 없거나 사진 로드에 실패했을 때 그 자리에 현재 날씨를 보여준다.
   // 빈 칸보다 낫고, 기상청 실황은 전국 어디서나 응답하므로 항상 무언가는 표시된다.
-  function showWeatherInstead(spinner, lat, lng, prefixMsg) {
+  // pendingCapture=true 이면 "지금 화면을 불러오는 중"임을 알린다.
+  // ⚠️ 2026-08: 영상에서 한 장면을 떠 오기 시작한 뒤에도 안내문이 "사진 없는 카메라 ·
+  // 눌러서 영상 보기" 그대로여서, 사용자가 기다려야 하는 상황인지 알 수 없고 문구와
+  // 실제 동작이 어긋났다(실사용 지적). 진행 중임을 말해야 기다림이 납득된다.
+  function showWeatherInstead(spinner, lat, lng, prefixMsg, pendingCapture) {
     if (!spinner) return;
+    var note = pendingCapture
+      ? '<span class="nwNote">📷 화면 불러오는 중… 잠시만요</span>'
+      : '<span class="nwNote">사진 없는 카메라 · 눌러서 영상 보기</span>';
     spinner.textContent = prefixMsg ? prefixMsg : '날씨 확인 중…';
     if (!CCTV_PROXY_BASE_URL || lat == null || lng == null) return;
     fetch(CCTV_PROXY_BASE_URL + '/api/weather-now?lat=' + encodeURIComponent(lat) + '&lng=' + encodeURIComponent(lng))
@@ -2411,11 +2418,19 @@
         spinner.innerHTML = '<div style="font-size:15px;font-weight:700;color:' +
           (w.raining ? '#2563eb' : '#475569') + ';">' + head + '</div>' +
           (sub.length ? '<div style="font-size:11.5px;color:#94a3b8;margin-top:2px;">' + sub.join(' · ') + '</div>' : '') +
-          '<div style="font-size:10.5px;color:#cbd5e1;margin-top:3px;">사진 없는 카메라 · 눌러서 영상 보기</div>';
+          '<div style="font-size:10.5px;color:#cbd5e1;margin-top:3px;">' + note + '</div>';
       })
       .catch(function() {
-        spinner.textContent = prefixMsg ? prefixMsg : '사진 없음 · 눌러서 영상 보기';
+        spinner.innerHTML = (prefixMsg ? prefixMsg + '<br>' : '') +
+          '<span style="font-size:10.5px;color:#cbd5e1;">' + note + '</span>';
       });
+  }
+
+  // 화면 뜨기가 끝났을 때(성공이든 실패든) 안내문을 실제 상태에 맞게 바꾼다.
+  function setCardNote(card, text) {
+    if (!card) return;
+    var el = card.querySelector('.nwNote');
+    if (el) el.textContent = text;
   }
 
   // ---------------------------------------------------------------------------
@@ -2509,10 +2524,20 @@
           var sp = task.card.querySelector('.nwSpinner');
           task.card.insertBefore(img, task.card.firstChild);
           if (sp) sp.remove();
+        } else {
+          setCardNote(task.card, '사진 없는 카메라 · 눌러서 영상 보기');
         }
         next();
       });
     });
+  }
+
+  // 아직 차례가 오지 않은 칸은 "잠시만요"가 아니라 순서를 알려준다 - 무작정 기다리는
+  // 것과 몇 번째인지 아는 것은 체감이 다르다.
+  function markQueuePositions(queue, startIdx) {
+    for (var i = startIdx; i < queue.length; i++) {
+      setCardNote(queue[i].card, '📷 화면 불러오는 중… ' + (i - startIdx + 1) + '번째 대기');
+    }
   }
 
   function runCaptureQueue(queue) {
@@ -2520,6 +2545,8 @@
     function step() {
       if (i >= queue.length) return;
       var task = queue[i++];
+      setCardNote(task.card, '📷 화면 불러오는 중… 잠시만요');
+      markQueuePositions(queue, i);
       fillCardWithFrame(task, step);
     }
     step();
@@ -2563,7 +2590,7 @@
           // 먼저 그 지점의 현재 강수·기온을 즉시 보여주고(빠름), 이어서 영상에서 한
           // 장면을 떠 그림으로 바꿔 끼운다(이미지). 그림이 안 떠지면 날씨 카드가 그대로
           // 남으므로 사용자가 잃는 것은 없다.
-          showWeatherInstead(spinner, pt.lat, pt.lng, null);
+          showWeatherInstead(spinner, pt.lat, pt.lng, null, true);
           captureQueue.push({ card: card, item: item, label: pt.label });
         }
         if (useDongLabel && !isNaN(ilat) && !isNaN(ilng)) {
