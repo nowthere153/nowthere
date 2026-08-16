@@ -396,7 +396,7 @@
   // 생기면 재사용 가능) index.html에서는 호출하지 않음.
   // 배포된 파일이 최신인지 콘솔에서 한 줄로 확인하기 위한 표시.
   // 같은 이유로 여러 번 헛돌아서(옛 파일이 올라간 줄 모르고 디버깅) 넣어둠.
-  var NOWTHERE_VERSION = 'v2026-08-15p (영상 실패 원인 콘솔 기록)';
+  var NOWTHERE_VERSION = 'v2026-08-15q (재생 경로·실패 지점 전부 기록)';
   console.log('[NowThere] ' + NOWTHERE_VERSION);
 
   var CCTV_PROXY_BASE_URL = 'https://api.nowthere.net';
@@ -2102,6 +2102,7 @@
       }
 
       function showLiveFailure() {
+        console.warn('[CCTV] 실패 처리 호출됨 · 카메라=' + name);
         // 재생이 실패했으면 시청 제한 타이머도 의미가 없으므로 함께 정리한다
         // (안 그러면 실패 안내 뒤에 "30초 후 멈췄습니다"가 겹쳐 뜬다 - 실제 발생)
         if (cctvLiveLimitTimer) { clearTimeout(cctvLiveLimitTimer); cctvLiveLimitTimer = null; }
@@ -3028,12 +3029,27 @@
   var CCTV_LIVE_MAX_MEDIA_RETRY = 2; // 디코더 복구 횟수
   var CCTV_LIVE_RETRY_DELAY_MS = 1200;
 
+  // 브라우저가 <video>로 HLS를 직접 재생할 수 있으면 그 경로가 우선이다(사파리 계열).
+  // ⚠️ 2026-08: 이 경로는 실패해도 아무 기록을 남기지 않아, 재생이 잠깐 보였다 사라지는데
+  // 콘솔은 텅 빈 상태가 됐다(제주 실사용). 어느 경로로 갔는지와 무엇이 실패를 선언했는지를
+  // 모두 남긴다 - 원인을 모르면 고칠 수 없고, 지금까지 같은 자리를 여러 번 맴돌았다.
+  var VIDEO_ERR_NAME = { 1: '사용자 중단', 2: '네트워크 오류', 3: '디코딩 실패', 4: '형식 미지원' };
   function playCctvLiveInline(streamUrl, videoEl, onError) {
     stopCctvPlayback();
-    if (videoEl.canPlayType('application/vnd.apple.mpegurl')) {
+    var native = videoEl.canPlayType('application/vnd.apple.mpegurl');
+    console.warn('[CCTV] 재생 시작 · 경로=' + (native ? '브라우저자체(' + native + ')' : 'hls.js') +
+      ' · 주소=' + String(streamUrl).slice(0, 120));
+    if (native) {
       videoEl.src = streamUrl; // 사파리 - <video> 태그가 HLS를 자체 지원
-      videoEl.play().catch(function() {});
-      videoEl.onerror = function() { if (onError) onError(); };
+      videoEl.play().catch(function(e) { console.warn('[CCTV] play() 거부: ' + (e && e.name)); });
+      videoEl.onerror = function() {
+        var code = videoEl.error && videoEl.error.code;
+        console.warn('[CCTV] 브라우저 자체 재생 실패 · 코드=' + code + ' (' + (VIDEO_ERR_NAME[code] || '?') + ')' +
+          (videoEl.error && videoEl.error.message ? ' · ' + videoEl.error.message : ''));
+        if (onError) onError();
+      };
+      videoEl.onstalled = function() { console.warn('[CCTV] 재생 정체(stalled)'); };
+      videoEl.onended = function() { console.warn('[CCTV] 재생 종료(ended)'); };
     } else if (window.Hls && Hls.isSupported()) {
       var netRetry = 0, mediaRetry = 0, gaveUp = false;
       currentCctvHls = new Hls();
