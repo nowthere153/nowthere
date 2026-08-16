@@ -87,11 +87,13 @@
 
   /* registerBtn 은 하단 주 행동 바로 이동(ID103) */
 
-  /* ⚠️ ID103: 현위치 버튼과 하단 "지금 여기"가 같은 일을 다른 자리에서 해 혼란을 줬다.
-     평소에는 하단 바가 그 역할을 하고, 이 버튼은 등록 위치를 지정할 때만 나타난다. */
+  /* ⚠️ ID103 재수정: 한때 이 버튼을 숨기고 하단 "지금 여기"가 겸하게 했으나 잘못이었다.
+     현위치는 확대·축소와 같은 "지도 조작"이고, 하단 "지금 여기"는 그 지점의 화면을 보는
+     "결과"다. 서로 대체하지 않으므로 둘 다 있어야 한다. 이름이 비슷하다는 이유로 묶었던
+     것이 오류였다(실사용 지적). */
   #locateBtn {
-    display: none; align-items: center; justify-content: center;
-    position: absolute; bottom: 108px; right: 16px; z-index: 12;
+    display: flex; align-items: center; justify-content: center;
+    position: absolute; bottom: 112px; right: 16px; z-index: 12;
     width: 44px; height: 44px; border-radius: 50%; border: none;
     background: white; font-size: 20px; cursor: pointer;
     box-shadow: 0 2px 10px rgba(0,0,0,0.25);
@@ -106,8 +108,8 @@
     box-shadow: 0 2px 10px rgba(0,0,0,0.2);
     display: flex; align-items: center; justify-content: center;
   }
-  #zoomInBtn { bottom: 200px; }
-  #zoomOutBtn { bottom: 156px; }
+  #zoomInBtn { bottom: 204px; }
+  #zoomOutBtn { bottom: 160px; }
 
   /* 지도 타입(일반/스카이뷰) 전환 버튼 - 카카오 기본 컨트롤이 모바일에서 아예 안 보이는
      문제가 있어 직접 만든 버튼으로 교체 (ID 65 후속 조정) */
@@ -197,10 +199,10 @@
     #searchBox { top: 56px; left: 10px; right: 10px; width: auto; max-width: none; transform: none; }
     #searchInput { padding: 9px 4px; font-size: 14.5px; }
     #searchBtn { padding: 9px 14px; font-size: 13.5px; }
-    #locateBtn { right: 10px; width: 40px; height: 40px; font-size: 17px; }
+    #locateBtn { right: 12px; bottom: 68px; width: 38px; height: 38px; font-size: 16px; }
     #zoomInBtn, #zoomOutBtn { right: 12px; width: 36px; height: 36px; font-size: 17px; }
-    #zoomInBtn { bottom: 152px; }
-    #zoomOutBtn { bottom: 110px; }
+    #zoomInBtn { bottom: 156px; }
+    #zoomOutBtn { bottom: 112px; }
     #mapTypeBtn { left: 10px; bottom: 76px; font-size: 11.5px; padding: 7px 10px; }
     #cctvToggleBtn { left: 108px; bottom: 76px; font-size: 11.5px; padding: 7px 10px; }
     #cctvAdminBtn { left: 196px; bottom: 76px; font-size: 11.5px; padding: 7px 10px; }
@@ -319,7 +321,7 @@
   <div class="invite">그리고 내 순간을 지도에 — 나만 보기도 됩니다</div>
 </div>
 
-<button id="locateBtn" title="현위치로 지정">🎯</button>
+<button id="locateBtn" title="지도를 내 위치로">🎯</button>
 <button id="zoomInBtn" title="확대">+</button>
 <button id="zoomOutBtn" title="축소">−</button>
 <button id="mapTypeBtn">🛰️ 스카이뷰</button>
@@ -424,7 +426,7 @@
   // 생기면 재사용 가능) index.html에서는 호출하지 않음.
   // 배포된 파일이 최신인지 콘솔에서 한 줄로 확인하기 위한 표시.
   // 같은 이유로 여러 번 헛돌아서(옛 파일이 올라간 줄 모르고 디버깅) 넣어둠.
-  var NOWTHERE_VERSION = 'v2026-08-16c (인터페이스 1차 개편 — 검색 통합·하단 바·더보기 시트)';
+  var NOWTHERE_VERSION = 'v2026-08-16d (현위치 버튼 복원 — 지도 조작과 결과 보기 분리)';
   console.log('[NowThere] ' + NOWTHERE_VERSION);
 
   var CCTV_PROXY_BASE_URL = 'https://api.nowthere.net';
@@ -1769,22 +1771,19 @@
   var pendingLatLng = null;
   var myLocationMarker = null;
 
-  // ⚠️ ID103: 현위치 버튼(🎯)은 평소에는 숨기고 위치를 지정하는 동안에만 보여준다.
-  // 평소에는 하단 "지금 여기"가 현위치 역할을 하므로 둘이 같은 일을 다르게 하는
-  // 혼란(실사용 지적)이 사라지고, 등록할 때 "현위치로 지정"이라는 쓸모는 남는다.
-  function setLocateBtnVisible(on) {
-    var b = document.getElementById('locateBtn');
-    if (b) b.style.display = on ? 'flex' : 'none';
-  }
+  // 현위치 버튼은 항상 보인다(지도 조작). 위치를 지정하는 중에는 누르면 그 자리를
+  // 바로 등록 위치로 잡는다 - 안내 문구로 역할이 바뀐 것을 알린다.
   function enterPlacingMode() {
     placingMode = true;
     document.getElementById('placingBanner').classList.add('show');
-    setLocateBtnVisible(true);
+    var b = document.getElementById('locateBtn');
+    if (b) b.title = '현위치로 지정';
   }
   function exitPlacingMode() {
     placingMode = false;
     document.getElementById('placingBanner').classList.remove('show');
-    setLocateBtnVisible(false);
+    var b2 = document.getElementById('locateBtn');
+    if (b2) b2.title = '지도를 내 위치로';
   }
 
   // ================================================================
