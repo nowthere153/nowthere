@@ -191,6 +191,7 @@
     #mapControls button svg { width: 19px; height: 19px; }
     /* 모바일에서는 76px 썸네일이 이미 충분히 잘 보인다는 피드백을 받아 기존 52px 유지 */
     .restoreChip { width: 52px; height: 52px; }
+    .chipX { width: 18px; height: 18px; font-size: 11px; top: 2px; right: 2px; }
   }
 
   .formRow { margin-bottom: 12px; }
@@ -285,6 +286,20 @@
     color: #fff; padding: 8px 14px; font-size: 13px; border-radius: 16px; white-space: nowrap;
   }
   .restoreChip img { width: 100%; height: 100%; object-fit: cover; display: block; }
+  /* ⚠️ 2026-08 추가(조정방향3): 하단 바에 열어본 CCTV가 계속 쌓이기만 하고 지우는 방법이
+     없어서, 한 번 여러 곳을 훑어보고 나면 바가 가득 차 버리는 문제가 실사용에서 지적됨.
+     칩마다 ✕(하나만 제거)를 붙이고, 바 끝에 "모두 닫기"를 둔다. 칩 자체가 <button>이라
+     그 안에 또 버튼을 넣을 수 없으므로(중첩 버튼은 잘못된 HTML) 감싸는 <div>를 둔다. */
+  .restoreChipWrap { position: relative; flex: 0 0 auto; line-height: 0; }
+  .chipX {
+    position: absolute; top: 3px; right: 3px; width: 22px; height: 22px; padding: 0;
+    border: none; border-radius: 50%; background: rgba(17,24,39,0.82); color: #fff;
+    font-size: 13px; line-height: 1; cursor: pointer;
+    display: flex; align-items: center; justify-content: center;
+  }
+  .chipX:hover { background: #dc2626; }
+  .restoreChip.closeAll { background: #b91c1c; }
+  .restoreChip.closeAll:hover { background: #dc2626; }
   #statusMsg {
     position: absolute; bottom: 16px; left: 50%; transform: translateX(-50%);
     background: white; padding: 8px 16px; border-radius: 20px; font-size: 13px;
@@ -419,7 +434,7 @@
   // 생기면 재사용 가능) index.html에서는 호출하지 않음.
   // 배포된 파일이 최신인지 콘솔에서 한 줄로 확인하기 위한 표시.
   // 같은 이유로 여러 번 헛돌아서(옛 파일이 올라간 줄 모르고 디버깅) 넣어둠.
-  var NOWTHERE_VERSION = 'v2026-08-16g (검색 시 지도 이동 복원)';
+  var NOWTHERE_VERSION = 'v2026-08-24a (주변 CCTV 제목·최근접 5곳·하단 바 정리)';
   console.log('[NowThere] ' + NOWTHERE_VERSION);
 
   var CCTV_PROXY_BASE_URL = 'https://api.nowthere.net';
@@ -2446,6 +2461,85 @@
     tryNext();
   }
 
+  // ⚠️ 2026-08 추가(조정방향2). 기존 구군검색은 "검색지점에서 동서남북 2.5km 떨어진 가상의
+  // 지점 4곳 + 중앙"을 먼저 정해두고 각 지점마다 가장 가까운 카메라를 찾는 방식이었다.
+  // 이 방식은 재생 가능한 CCTV가 적던 도입 초기에는 합리적이었지만(넓게 흩어야 뭐라도
+  // 잡혔다), 소스가 늘어난 지금은 오히려 해가 된다 - 검색한 바로 그 지점 옆에 카메라가
+  // 여러 대 있어도 "북쪽 2.5km 지점에서 가장 가까운 카메라"를 뽑느라 정작 검색지에서
+  // 먼 카메라가 올라온다. 특히 "ㅇㅇ휴게소" 같은 좁은 지점을 검색할 때 체감이 크다.
+  // 그래서 가상 지점을 없애고, 검색 좌표 하나를 기준으로 실제 거리순 상위 N개를 뽑는다.
+  // 위도 1도≈111km, 경도 1도≈111km×cos(위도). approxDegDistance는 경도 보정이 없어
+  // 위아래로 긴 나라에서는 동서 거리를 과대평가하므로, "가장 가까운 순서"를 판단하는
+  // 이 함수에서는 km 근사식을 따로 쓴다(라벨에 거리도 함께 보여줘야 해서 필요하기도 함).
+  function approxKmDistance(lat1, lng1, lat2, lng2) {
+    var dLat = (lat1 - lat2) * 111;
+    var dLng = (lng1 - lng2) * 111 * Math.cos(lat1 * Math.PI / 180);
+    return Math.sqrt(dLat * dLat + dLng * dLng);
+  }
+
+  function formatKmLabel(km) {
+    if (km < 1) return '약 ' + (Math.round(km * 1000 / 50) * 50 || 50) + 'm';
+    return '약 ' + (Math.round(km * 10) / 10) + 'km';
+  }
+
+  // 후보 목록에서 "서로 다른" 카메라를 거리순으로 count개 고른다.
+  // ⚠️ 5칸이 어떤 경우에도 서로 달라야 한다는 것이 이 함수의 핵심 계약이다. 중복은 두
+  // 가지 층위에서 생긴다 - (1) 같은 카메라가 여러 소스/여러 조회에 걸쳐 중복으로 들어오는
+  // 경우는 좌표 기반 cctvIdOf로 걸러지고, (2) 서로 다른 카메라인데 같은 정지영상 주소를
+  // 돌려주는 경우(일부 기관이 대표 이미지를 공유)는 토큰을 제거한 cctvImageKeyOf로
+  // 걸러진다. 두 키 모두 검사해야 화면상 "같은 그림 5장"이 나오지 않는다.
+  // 먼저 거리순으로 정렬한 뒤 중복을 제거하므로, 중복 그룹에서는 항상 가장 가까운
+  // 카메라가 대표로 남는다(정렬 전에 제거하면 목록 순서에 따라 먼 쪽이 남을 수 있음).
+  function pickNearestSet(list, lat, lng, count) {
+    var cand = [];
+    list.forEach(function(item) {
+      var ilat = parseFloat(item.coordy), ilng = parseFloat(item.coordx);
+      if (isNaN(ilat) || isNaN(ilng)) return;
+      cand.push({ item: item, lat: ilat, lng: ilng, hasImage: !!item.imageUrl,
+        km: approxKmDistance(lat, lng, ilat, ilng) });
+    });
+    cand.sort(function(a, b) { return a.km - b.km; });
+    var seen = {}, uniq = [];
+    cand.forEach(function(c) {
+      var id = cctvIdOf(c.item);
+      if (seen[id]) return;
+      var imgKey = cctvImageKeyOf(c.item);
+      if (imgKey && seen[imgKey]) return;
+      seen[id] = true;
+      if (imgKey) seen[imgKey] = true;
+      uniq.push(c);
+    });
+    // ⚠️ 사진 유무로 순서를 바꾸지 않는다. 예전 로직은 "정지영상이 있는 카메라 우선"이었고
+    // 그때는 맞았다 - 영상만 주는 카메라를 뽑으면 그 칸이 영영 빈 칸이었기 때문이다. 그러나
+    // 그 뒤 영상에서 한 장면을 떠 오는 기능이 생겨 빈 칸 문제는 이미 해결됐고, 지금 그
+    // 규칙을 그대로 두면 2km 앞의 카메라를 건너뛰고 7km 밖의 카메라가 올라온다. 그것이
+    // 바로 이번에 없애기로 한 왜곡이므로(조정방향2), 선정 기준은 거리 하나뿐이다.
+    // 사진이 없는 카메라가 뽑히면 renderCctvGrid가 날씨를 먼저 띄우고 이어서 영상에서
+    // 한 장면을 떠 그림으로 바꿔 끼운다 - 조금 느릴 뿐 잃는 정보는 없다.
+    return uniq.slice(0, count);
+  }
+
+  // 검색 좌표 하나를 기준으로 가장 가까운 서로 다른 카메라 count개를 찾는다.
+  // findNearestCctv와 같은 방식으로 반경을 넓혀가며 재시도하되, count개를 다 못 채웠으면
+  // 아직 남은 더 넓은 반경으로 한 번 더 시도한다(섬·산간처럼 카메라가 드문 곳 대응).
+  function findNearestCctvSet(lat, lng, count, callback) {
+    var radii = [0.03, 0.08, 0.2, 0.5]; // 약 3km, 8km, 20km, 50km
+    var i = 0, bestSoFar = [];
+    function tryNext() {
+      if (i >= radii.length) { callback(bestSoFar); return; }
+      var r = radii[i++];
+      fetchCctvList({ minX: lng - r, maxX: lng + r, minY: lat - r, maxY: lat + r }, function(result) {
+        if (result.ok && result.list && result.list.length) {
+          var picked = pickNearestSet(result.list, lat, lng, count);
+          if (picked.length > bestSoFar.length) bestSoFar = picked;
+          if (bestSoFar.length >= count) { callback(bestSoFar); return; }
+        }
+        tryNext();
+      });
+    }
+    tryNext();
+  }
+
   // 전국보기/구군 날씨검색이 공통으로 쓰는 카드 렌더러. points: [{label, lat, lng}, ...] -
   // label은 카드에 표시될 이름(도시명 또는 "중앙"/"북"/"남"/"동"/"서" 등).
   // ⚠️ 2026-07: 지점끼리 거리가 가까운 구군검색(중앙·동서남북, 2.5km 간격)에서 서로 다른
@@ -2624,8 +2718,10 @@
       card.innerHTML = '<div class="nwSpinner">불러오는 중…</div><span class="nwLabel"></span>';
       card.querySelector('.nwLabel').textContent = pt.label; // 지명은 사용자 검색어 유래일 수 있어 textContent로 안전하게 삽입
       grid.appendChild(card);
-      // 사진 있는 카메라를 우선으로 찾는다(이 화면의 목적이 "그림으로 한눈에 보기"이므로)
-      findNearestCctv(pt.lat, pt.lng, usedIds, function(item) {
+      // ⚠️ 2026-08(조정방향2): 구군검색은 카메라를 미리 거리순으로 골라 pt.item에 담아
+      // 넘긴다. 그 경우 여기서 다시 찾지 않고 넘어온 카메라를 그대로 쓴다. 전국보기는
+      // 예전처럼 지점(도시)만 넘어오므로 기존대로 그 지점에서 가장 가까운 것을 찾는다.
+      function useItem(item) {
         var spinner = card.querySelector('.nwSpinner');
         if (!item) {
           if (spinner) spinner.textContent = '근처에 다른 CCTV가 없습니다';
@@ -2641,7 +2737,7 @@
         var ilat = parseFloat(item.coordy), ilng = parseFloat(item.coordx);
         if (imageUrl) {
           var img = document.createElement('img');
-          img.alt = pt.label;
+          img.alt = pt.item ? (item.cctvname || pt.label) : pt.label;
           img.onload = function() { if (spinner) spinner.remove(); };
           img.onerror = function() { showWeatherInstead(spinner, pt.lat, pt.lng, '사진을 불러오지 못했습니다'); };
           img.src = imageUrl;
@@ -2672,10 +2768,17 @@
           });
         }
         card.addEventListener('click', function() {
-          openCctvPopup({ name: pt.label + ' · ' + name, lat: ilat, lng: ilng, imageUrl: imageUrl, streamUrl: streamUrl, mp4Url: item.mp4Url || '', liveFirst: !!item.liveFirst, relayLive: !!item.relayLive, ggResolve: !!item.ggResolve, streamResolve: item.streamResolve || '', maxSeconds: item.maxSeconds || 0 });
+          // ⚠️ 2026-08(조정방향2): 구군검색의 라벨은 이제 방향("북")이 아니라 거리("약
+          // 1.2km")라서, 그대로 앞에 붙이면 팝업 제목이 "약 1.2km · 카메라이름"이 되어
+          // 어디인지 알려주지 못한다. 미리 고른 카메라를 쓰는 경우에는 카메라 이름을
+          // 앞세우고 거리를 괄호로 덧붙인다(전국보기는 라벨이 도시명이라 기존 그대로).
+          openCctvPopup({ name: pt.item ? (name + ' (' + pt.label + ')') : (pt.label + ' · ' + name), lat: ilat, lng: ilng, imageUrl: imageUrl, streamUrl: streamUrl, mp4Url: item.mp4Url || '', liveFirst: !!item.liveFirst, relayLive: !!item.relayLive, ggResolve: !!item.ggResolve, streamResolve: item.streamResolve || '', maxSeconds: item.maxSeconds || 0 });
         });
         renderOne(idx + 1);
-      }, true);
+      }
+      if (pt.item) useItem(pt.item);
+      // 사진 있는 카메라를 우선으로 찾는다(이 화면의 목적이 "그림으로 한눈에 보기"이므로)
+      else findNearestCctv(pt.lat, pt.lng, usedIds, useItem, true);
     }
     renderOne(0);
   }
@@ -2750,8 +2853,11 @@
   // 모음이미지로 보여줌. 기존 파란 "검색" 버튼(장소/캠핑장 검색)과는 별개 동작 -
   // 오조작 방지를 위해 검색창은 공유하되 버튼을 분리(마스터플랜 ID73 설계 원칙).
   // ================================================================
-  var DISTRICT_OFFSET_KM = 2.5; // 중앙에서 동서남북 대표지점까지의 거리 - 우선 고정값으로
-  // 시작하고, 지역별 크기 차이에 따른 체감 오차는 실사용 피드백을 보고 조정할 예정.
+  // ⚠️ 2026-08(조정방향2): DISTRICT_OFFSET_KM(중앙에서 동서남북 대표지점까지 2.5km)은
+  // 더 이상 쓰지 않는다. 아래 openDistrictWeatherView 주석 참고 - 가상 지점을 만드는
+  // 대신 검색 좌표에서 가까운 순서로 카메라를 직접 고른다. offsetLatLng는 다른 곳에서도
+  // 쓰일 수 있어 함수는 남겨둔다.
+  var DISTRICT_CCTV_COUNT = 5; // 한 화면에 보여줄 카메라 수(2×3 격자에 맞춘 값)
 
   // 위도 1도≈111km, 경도 1도≈111km×cos(위도) 근사식으로 남북/동서 오프셋 좌표 계산.
   // 정밀 측지 계산은 아니지만 "동서남북 대표지점 하나씩 잡기" 용도로는 충분함.
@@ -2769,27 +2875,44 @@
     // 팝업 뒤 배경 지도도 그 지역을 비추고 있어야 결과가 어디인지 납득된다.
     mapSetCenter(center.lat, center.lng);
     mapSetLevel(6);
-    var north = offsetLatLng(center.lat, center.lng, DISTRICT_OFFSET_KM, 0);
-    var south = offsetLatLng(center.lat, center.lng, -DISTRICT_OFFSET_KM, 0);
-    var east = offsetLatLng(center.lat, center.lng, 0, DISTRICT_OFFSET_KM);
-    var west = offsetLatLng(center.lat, center.lng, 0, -DISTRICT_OFFSET_KM);
-    var points = [
-      { label: '중앙', lat: center.lat, lng: center.lng },
-      { label: '북', lat: north.lat, lng: north.lng },
-      { label: '남', lat: south.lat, lng: south.lng },
-      { label: '동', lat: east.lat, lng: east.lng },
-      { label: '서', lat: west.lat, lng: west.lng }
-    ];
-    var body = '<p style="margin:0 0 10px;color:#888;font-size:12.5px;">이 지역 중앙과 동서남북의 지금 화면입니다 · 눌러서 크게 보기</p>' +
+    var body = '<p style="margin:0 0 10px;color:#888;font-size:12.5px;">검색하신 곳에서 가까운 순서로 CCTV 5곳입니다 · 눌러서 크게 보기</p>' +
       '<div id="districtGrid" class="nwGrid"></div>';
+    // ⚠️ 2026-08 제목 변경(조정방향1): 예전 제목은 "ㅇㅇ 지금 모습"이었다. 검색어가
+    // "충주" 같은 지역명일 때는 문제가 없었지만, "ㅇㅇ휴게소"처럼 좁은 지점을 검색하면
+    // 화면에 뜨는 것은 그 휴게소가 아니라 근처 도로 카메라인데도 제목이 그곳을 보여주는
+    // 것처럼 읽혀, 사용자가 착각하고 실망한다는 지적을 받음(실사용 피드백). 이 화면이
+    // 보여주는 것은 언제나 "검색지 자체"가 아니라 "검색지 주변 CCTV"이므로 제목이
+    // 그렇게 말해야 한다. 아래 안내문과 각 칸의 거리 표시도 같은 사실을 반복해서 알린다.
     // 제목에 검색어(query)를 그대로 넣지만, openModal의 제목 처리는 createTextNode를
     // 써서 HTML로 해석되지 않으므로(위 openModal 참고) 사용자가 입력한 임의 문자열이
     // 섞여도 안전함 - 본문(body)에는 검색어를 넣지 않음.
-    openModal('☔ ' + query + ' 지금 모습', body, weatherIconSvgDataUrl());
+    openModal('📷 ' + query + ' 주변 CCTV', body, weatherIconSvgDataUrl());
     // 위와 동일한 이유로, 이 지역(query/center)을 다시 열 수 있도록 등록해둠 -
     // query/center를 클로저로 그대로 캡처하므로 재호출 시 동일한 지역이 다시 열림.
     currentReopenFn = function() { openDistrictWeatherView(query, center); };
-    renderCctvGrid(document.getElementById('districtGrid'), points, true);
+    // ⚠️ 2026-08(조정방향2): 가상의 동서남북 지점을 만들지 않고, 검색 좌표에서 실제
+    // 거리순으로 서로 다른 카메라 5대를 먼저 고른 뒤 그걸 그대로 칸에 채운다.
+    var grid = document.getElementById('districtGrid');
+    // 카메라를 고르는 동안(반경을 넓혀가며 조회하므로 몇 초 걸릴 수 있음) 빈 화면을
+    // 두지 않는다 - 기다려야 하는 상황인지 알 수 없다는 지적을 이미 받은 적이 있다.
+    grid.innerHTML = '<div class="nwCard"><div class="nwSpinner">가까운 CCTV를 찾는 중…</div></div>';
+    findNearestCctvSet(center.lat, center.lng, DISTRICT_CCTV_COUNT, function(picked) {
+      if (!grid || !document.body.contains(grid)) return; // 화면이 이미 닫혔으면 그리지 않음
+      grid.innerHTML = '';
+      if (!picked.length) {
+        grid.innerHTML = '<p style="margin:0;color:#888;font-size:13px;">이 근처에서 볼 수 있는 CCTV를 찾지 못했습니다.</p>';
+        return;
+      }
+      if (picked.length < DISTRICT_CCTV_COUNT) {
+        var note = document.createElement('p');
+        note.style.cssText = 'margin:0 0 8px;color:#888;font-size:12.5px;';
+        note.textContent = '이 근처에서 볼 수 있는 CCTV는 ' + picked.length + '곳입니다.';
+        grid.parentNode.insertBefore(note, grid);
+      }
+      renderCctvGrid(grid, picked.map(function(c) {
+        return { label: formatKmLabel(c.km), lat: c.lat, lng: c.lng, item: c.item };
+      }), true);
+    });
   }
 
   // weatherSearchBtn 은 검색 버튼에 통합됨(ID103) - searchAndShow 참고
@@ -3430,6 +3553,29 @@
   // - 이번 세션에서 확인한 CCTV가 하나라도 있으면: 각각을 작은 썸네일 칩으로 나열(가로 스크롤).
   //   칩을 누르면 그 위치를 다시 엶 - 여러 지역 날씨를 훑어보는 "개요" 용도.
   // - CCTV 기록이 없으면(예: 다른 종류의 정보창을 접은 경우): 기존처럼 단순 "다시 보기" 버튼 하나만.
+  // ⚠️ 2026-08 추가(조정방향3): 하단 바를 통째로 닫는다. 바만 숨기면 다음에 접을 때
+  // 그대로 다시 나타나므로 "닫았다"는 느낌이 들지 않는다. 그래서 접혀 있던 정보창까지
+  // 완전히 닫고, 쌓여 있던 기록도 비운다(기록은 원래 세션 한정이라 서버에 영향 없음).
+  function closeRestoreBar(clearHistory) {
+    stopCctvPlayback();
+    if (clearHistory) cctvHistory = [];
+    currentReopenFn = null;
+    var modal = document.getElementById('modal');
+    modal.classList.remove('peek');
+    modal.classList.remove('show');
+    document.getElementById('modalBody').innerHTML = '';
+    document.getElementById('restoreBar').classList.remove('show');
+    clearJourneyPolyline(); // ✕ 버튼과 하단 바의 닫기가 서로 다르게 동작하지 않도록 맞춤
+  }
+
+  function makeCloseAllButton(label, clearHistory) {
+    var btn = document.createElement('button');
+    btn.className = 'restoreChip simple closeAll';
+    btn.textContent = label;
+    btn.addEventListener('click', function() { closeRestoreBar(clearHistory); });
+    return btn;
+  }
+
   function renderRestoreBar() {
     var bar = document.getElementById('restoreBar');
     bar.innerHTML = '';
@@ -3444,6 +3590,7 @@
         currentReopenFn();
       });
       bar.appendChild(gridBtn);
+      bar.appendChild(makeCloseAllButton('✕ 닫기', false));
       return;
     }
     if (cctvHistory.length === 0) {
@@ -3458,6 +3605,8 @@
       return;
     }
     cctvHistory.forEach(function(entry) {
+      var wrap = document.createElement('div');
+      wrap.className = 'restoreChipWrap';
       var chip = document.createElement('button');
       chip.className = 'restoreChip';
       chip.title = entry.name; // 글자 라벨 대신 마우스오버 툴팁으로 - 좁은 칸에 이름이 잘려 보이던 문제 해결
@@ -3470,8 +3619,26 @@
         bar.classList.remove('show');
         openCctvPopup(entry);
       });
-      bar.appendChild(chip);
+      wrap.appendChild(chip);
+      // ⚠️ 2026-08(조정방향3): 칩 하나만 골라 지우는 ✕. 칩 위에 겹쳐 있으므로
+      // stopPropagation으로 "그 CCTV를 다시 열기"가 같이 실행되지 않게 막는다.
+      var x = document.createElement('button');
+      x.className = 'chipX';
+      x.type = 'button';
+      x.textContent = '✕';
+      x.title = entry.name + ' 목록에서 제거';
+      x.setAttribute('aria-label', entry.name + ' 목록에서 제거');
+      x.addEventListener('click', function(ev) {
+        ev.stopPropagation();
+        cctvHistory = cctvHistory.filter(function(e) { return e.key !== entry.key; });
+        // 마지막 하나까지 지웠으면 빈 바를 남기지 말고 접혀 있던 창까지 정리한다.
+        if (cctvHistory.length === 0) { closeRestoreBar(true); return; }
+        renderRestoreBar();
+      });
+      wrap.appendChild(x);
+      bar.appendChild(wrap);
     });
+    bar.appendChild(makeCloseAllButton('✕ 모두 닫기', true));
   }
 
   document.getElementById('minimizeBtn').addEventListener('click', function() {
