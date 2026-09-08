@@ -3370,10 +3370,16 @@
   }
   function updateConceptButtonVisibility() {
     var btn = document.getElementById('conceptBtn');
-    if (!btn) return;
+    // CONCEPT_DEFS는 이 함수보다 아래에서 대입된다. 로그인 콜백은 항상 비동기라 실제로는
+    // 늦게 불리지만, 순서를 콜백 타이밍에 맡기지 않는다(그 가정이 깨지면 조용히 죽는다).
+    if (!btn || !CONCEPT_DEFS) return;
     // CCTV 기능 자체가 비공개면 컨셉 뷰도 없다(같은 재료를 쓰므로).
+    // ⚠️ 담긴 화면이 0곳이면 일반 방문자에게는 버튼을 감춘다 - 눌러도 빈 목록만 나오는
+    // 버튼은 없는 것만 못하다. 관리자에게는 담을 자리가 보여야 하므로 항상 보인다.
     var on = (CCTV_ENABLED || isAdmin) && (anyConceptCurated() || isAdmin);
     btn.style.display = on ? 'flex' : 'none';
+    btn.title = anyConceptCurated() ? '바다·노을 같은 풍경으로 보기'
+                                    : '풍경 컨셉 - 아직 담긴 화면이 없습니다(관리자만 보임)';
   }
 
   function loadConceptViews(data) {
