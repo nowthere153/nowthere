@@ -3826,6 +3826,17 @@
 
       '<div style="font-weight:700;margin:16px 0 6px;">5. 서버 상태</div>' +
       '<div id="admHealth" style="font-size:12.5px;color:#94a3b8;">확인 중…</div>' +
+      // ⚠️ 2026-09-08 신설: 소스가 죽었을 때 "어느 단계에서 죽었는지"는 위의 대수만으로는
+      // 알 수 없다. 목록은 오는데 재생 주소가 비는 경우와, 목록 자체가 안 오는 경우는
+      // 고칠 곳이 완전히 다르다. 지금까지는 그걸 개발자도구 콘솔에서 확인해야 했는데,
+      // 크롬이 콘솔 붙여넣기를 막아두어 실제로는 쓸 수 없는 방법이었다. 화면 안에 둔다.
+      '<div style="display:flex;align-items:center;justify-content:space-between;gap:10px;padding:8px 0;">' +
+      '<div style="min-width:0;"><div style="font-size:13px;">지자체 소스 정밀 진단</div>' +
+      '<div style="font-size:11.5px;color:#64748b;">목록 · 영상주소 · 실제 연결을 단계별로 확인합니다.</div></div>' +
+      '<select id="admDiagRegion" style="flex:0 0 auto;border:1px solid #cbd5e1;border-radius:6px;padding:5px 8px;font-size:12px;background:#fff;">' +
+      '<option value="jeju">제주</option><option value="ulsan">울산</option><option value="chungju">충주</option></select>' +
+      '<button id="admDiag" style="flex:0 0 auto;border:none;border-radius:6px;padding:6px 12px;font-size:12px;cursor:pointer;background:#1f2937;color:#fff;">진단</button></div>' +
+      '<div id="admDiagBox" style="font-size:12px;color:#475569;"></div>' +
 
       // ⚠️ 2026-09 신설(ID101 · IV-12): 그동안 "얼마나 왔는지" 알 방법이 아예 없었다.
       // 유튜브 설명란에 주소를 걸고 14편을 올렸는데 그중 몇 명이 들어왔는지 셀 수가 없었다.
@@ -4087,6 +4098,87 @@
         }
       });
     }
+
+    // ─────────────────────────────────────────────────────────────
+    // 지자체 소스 정밀 진단 (2026-09-08)
+    // ─────────────────────────────────────────────────────────────
+    // 왜 단계별인가. "제주가 안 된다"는 말로는 고칠 곳을 못 정한다. 실제로 끊길 수 있는
+    // 지점이 넷이고 각각 고칠 사람과 고칠 파일이 다르다.
+    //   ① 목록이 안 옴        → 우리 서버의 수집(제공기관 사이트 변경·인증서·IP차단)
+    //   ② 목록은 오는데 주소칸이 빔 → 우리 서버의 항목 변환
+    //   ③ 주소풀기가 빈 값     → 제공기관의 재생주소 발급 방식 변경
+    //   ④ 주소는 있는데 연결 실패 → 제공기관의 차단(CORS·인증서·IP)
+    // 화면에 번호로 찍어두면 다음에 같은 일이 나도 말이 아니라 번호로 주고받을 수 있다.
+    var DIAG_BBOX = {
+      jeju:    { name: '제주', q: '?minX=126.10&maxX=127.00&minY=33.10&maxY=33.60' },
+      ulsan:   { name: '울산', q: '?minX=129.20&maxX=129.45&minY=35.45&maxY=35.65' },
+      chungju: { name: '충주', q: '?minX=127.80&maxX=128.05&minY=36.90&maxY=37.05' }
+    };
+    var dgBtn = document.getElementById('admDiag');
+    if (dgBtn) dgBtn.addEventListener('click', function() {
+      var box = document.getElementById('admDiagBox');
+      var sel = document.getElementById('admDiagRegion');
+      if (!box || !sel || !CCTV_PROXY_BASE_URL) return;
+      var region = DIAG_BBOX[sel.value] || DIAG_BBOX.jeju;
+      var lines = [];
+      function draw(verdict) {
+        box.innerHTML = '<div style="margin-top:6px;padding:10px 12px;background:#f8fafc;border-radius:8px;line-height:1.75;">' +
+          lines.join('<br>') +
+          (verdict ? '<div style="margin-top:8px;padding-top:8px;border-top:1px solid #e2e8f0;font-weight:700;color:#b91c1c;">' + verdict + '</div>' : '') +
+          '</div>';
+      }
+      function add(s) { lines.push(escapeHtml(s)); draw(''); }
+      lines.push('<b>' + escapeHtml(region.name) + ' 진단</b>');
+      draw('');
+
+      fetch(CCTV_PROXY_BASE_URL + '/api/local-cctv' + region.q).then(function(r) {
+        add('① 목록 API 응답코드 ' + r.status);
+        if (!r.ok) throw new Error('HTTP ' + r.status);
+        return r.json();
+      }).then(function(d) {
+        var list = extractCctvItems(d);
+        add('② 카메라 수 ' + list.length + '대');
+        if (!list.length) {
+          draw('판정 ①: 서버가 이 지역 카메라를 하나도 돌려주지 않습니다. 수집 단계(제공기관 사이트 변경 · 인증서 만료 · 서버 IP 차단)를 봐야 합니다.');
+          return;
+        }
+        var it = list[0];
+        add('③ 표본: ' + (it.cctvname || '이름없음'));
+        add('   정지영상 ' + (it.imageUrl ? '있음' : '없음') +
+            ' · 영상주소 ' + (it.cctvurl ? '있음' : '없음') +
+            ' · 주소풀기키 ' + (it.streamResolve ? '있음' : '없음'));
+        if (!it.streamResolve && !it.cctvurl && !it.imageUrl) {
+          draw('판정 ②: 목록은 오는데 볼 수 있는 주소가 하나도 없습니다. 서버의 항목 변환 부분을 봐야 합니다.');
+          return;
+        }
+        if (!it.streamResolve) {
+          draw('판정 —: 이 지역은 주소풀기 없이 직접 주소를 씁니다. 여기까지는 정상입니다.');
+          return;
+        }
+        return fetch(CCTV_PROXY_BASE_URL + '/api/local-stream?ref=' + encodeURIComponent(it.streamResolve))
+          .then(function(r2) {
+            add('④ 주소풀기 API 응답코드 ' + r2.status);
+            return r2.json();
+          }).then(function(d2) {
+            add('⑤ 받아온 영상주소 ' + (d2.url ? d2.url.slice(0, 70) + '…' : '(비어 있음)'));
+            if (!d2.url) {
+              draw('판정 ③: 제공기관 사이트에서 재생 주소를 뽑아내지 못하고 있습니다. 사이트가 주소 발급 방식을 바꾼 경우가 대부분입니다. 서버의 해당 지역 처리 코드를 고쳐야 합니다.');
+              return;
+            }
+            return fetch(d2.url).then(function(r3) {
+              add('⑥ 영상주소 직접 연결 ' + r3.status);
+              draw(r3.ok ? '판정 ⑤: 주소까지는 살아 있습니다. 재생(HLS) 단계 문제이므로 화면 쪽을 봐야 합니다.'
+                         : '판정 ④: 제공기관 서버가 이 주소를 거부합니다(' + r3.status + ').');
+            }).catch(function(e) {
+              add('⑥ 영상주소 직접 연결 차단됨');
+              draw('판정 ④: 브라우저가 제공기관 서버에 닿지 못합니다(CORS 또는 인증서). ' + (e && e.message ? e.message : ''));
+            });
+          });
+      }).catch(function(err) {
+        add('✕ 중단: ' + (err && err.message ? err.message : '알 수 없는 오류'));
+        draw('판정 ①: 우리 서버가 응답하지 않거나 이 지역 처리에서 예외가 납니다.');
+      });
+    });
   }
 
   // 관리자 전용: 전체 사용자에게 CCTV 기능을 공개할지(cctvEnabled) 조정
