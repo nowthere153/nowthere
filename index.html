@@ -368,7 +368,7 @@
     <div class="it" id="mNationwide">🌍 <b>전국 한눈에</b></div>
     <div class="it" id="mRecent">🚨 <b>최근 제보</b></div>
     <h4>내 것</h4>
-    <div class="it" id="mJourneys">🧭 <b>내 기록</b></div>
+    <div class="it" id="mJourneys">🧭 <b>내 기록</b> <span id="myCountBadge" style="margin-left:auto;font-size:12px;color:#94a3b8;"></span></div>
     <h4>지도에서 고르기</h4>
     <div id="filterBar"></div>
     <div id="mAdminRow" class="it" style="display:none;">⚙️ <b>관리자 콘솔</b></div>
@@ -445,7 +445,7 @@
   // 생기면 재사용 가능) index.html에서는 호출하지 않음.
   // 배포된 파일이 최신인지 콘솔에서 한 줄로 확인하기 위한 표시.
   // 같은 이유로 여러 번 헛돌아서(옛 파일이 올라간 줄 모르고 디버깅) 넣어둠.
-  var NOWTHERE_VERSION = 'v2026-09-04a (공개범위·계측·헤더 개편 — 배포1)';
+  var NOWTHERE_VERSION = 'v2026-09-08a (내 기록 관리·기록이름 검색 복구 — 배포2)';
   console.log('[NowThere] ' + NOWTHERE_VERSION);
 
   var CCTV_PROXY_BASE_URL = 'https://api.nowthere.net';
@@ -1393,6 +1393,28 @@
   }
   // 같은 브라우저가 같은 것을 하루에 여러 번 세지 않도록 막는다. 서버 쓰기 비용도 아끼고,
   // 새로고침 한 번에 숫자가 뛰는 것을 막아 수치를 믿을 수 있게 만든다.
+  // ⚠️ 2026-09(배포2): 등록한 문서 id를 이 브라우저에 적어둔다.
+  // 익명 UID는 재발급될 수 있고(실제로 등록분이 UID 두 개로 쪼개져 있었다), UID를 잃으면
+  // 서버가 그 기록을 내주지 않아 무엇을 옮겨야 할지조차 알 수 없게 된다. id 목록이 있으면
+  // 나중에 소유자를 잇거나 옮길 때 문서를 직접 지정할 수 있다. 서버에 새로 쌓는 것이
+  // 아니라 그 브라우저 안에만 적어두는 것이라 수집이 아니다.
+  var MY_DOCS_KEY = 'nt_my_docs';
+  function rememberMyDoc(id) {
+    try {
+      var a = JSON.parse(localStorage.getItem(MY_DOCS_KEY) || '[]');
+      if (a.indexOf(id) === -1) { a.push(id); localStorage.setItem(MY_DOCS_KEY, JSON.stringify(a)); }
+    } catch (e) {}
+  }
+  function forgetMyDoc(id) {
+    try {
+      var a = JSON.parse(localStorage.getItem(MY_DOCS_KEY) || '[]');
+      localStorage.setItem(MY_DOCS_KEY, JSON.stringify(a.filter(function(x) { return x !== id; })));
+    } catch (e) {}
+  }
+  function myDocIds() {
+    try { return JSON.parse(localStorage.getItem(MY_DOCS_KEY) || '[]'); } catch (e) { return []; }
+  }
+
   function onceADay(key) {
     var k = 'nt_once_' + key + '_' + todayKey();
     try {
@@ -1909,12 +1931,79 @@
   // 두 동작이 분리돼 있어 관계가 보이지 않았고, "충주를 치고 아래 버튼을 누르는 것인가"
   // 하는 혼란이 있었다(실사용 지적). 검색 자체가 "그곳의 지금 모습 보여주기"가 되어야 한다.
   // 입력(검색·지도·현위치)이 셋이어도 결과는 하나로 모인다.
+  // 검색어가 기록·기록이름·지명 중 여럿에 맞을 때 무엇을 볼지 고르게 한다 (ID111)
+  function showSearchChoice(query, journeyHits, nameHits) {
+    var body = '<p style="margin:0 0 12px;font-size:13px;color:#475569;">"' + escapeHtml(query) + '"으로 찾은 것입니다.</p>' +
+      '<div style="display:flex;flex-direction:column;gap:8px;">';
+    journeyHits.forEach(function(g, i) {
+      body += '<button class="scJourney" data-i="' + i + '" style="text-align:left;border:1px solid #e0e7ff;background:#eef2ff;border-radius:10px;padding:11px 13px;font-size:14px;color:#4338ca;cursor:pointer;">' +
+        '🧭 <b>' + escapeHtml(g.name) + '</b> <span style="font-size:12px;color:#6366f1;">기록 ' + g.spots.length + '곳</span></button>';
+    });
+    nameHits.slice(0, 5).forEach(function(s, i) {
+      body += '<button class="scSpot" data-i="' + i + '" style="text-align:left;border:1px solid #eee;background:#fff;border-radius:10px;padding:11px 13px;font-size:14px;cursor:pointer;">' +
+        '📍 ' + escapeHtml(s.name) + '</button>';
+    });
+    body += '<button id="scCctv" style="text-align:left;border:1px solid #fecdd3;background:#fff1f2;border-radius:10px;padding:11px 13px;font-size:14px;color:#be123c;cursor:pointer;">' +
+      '📷 <b>' + escapeHtml(query) + ' 주변 CCTV</b> <span style="font-size:12px;">지금 모습 보기</span></button>' +
+      '</div>';
+    openModal('🔎 ' + query, body);
+    document.querySelectorAll('.scJourney').forEach(function(b) {
+      b.addEventListener('click', function() {
+        var g = journeyHits[parseInt(b.getAttribute('data-i'), 10)];
+        clearMarkers();
+        openJourneyModal(g.name, g.spots);
+      });
+    });
+    document.querySelectorAll('.scSpot').forEach(function(b) {
+      b.addEventListener('click', function() {
+        var s = nameHits[parseInt(b.getAttribute('data-i'), 10)];
+        mapSetCenter(s.lat, s.lng); mapSetLevel(4);
+        openSpotModal(s);
+      });
+    });
+    document.getElementById('scCctv').addEventListener('click', function() {
+      document.getElementById('modal').classList.remove('show');
+      document.getElementById('modalBody').innerHTML = '';
+      showStatus('🔎 "' + query + '" 지금 모습을 불러오는 중…');
+      var gc = new kakao.maps.services.Geocoder();
+      gc.addressSearch(query, function(result, status) {
+        if (status === kakao.maps.services.Status.OK && result[0]) {
+          openDistrictWeatherView(query, { lat: parseFloat(result[0].y), lng: parseFloat(result[0].x) });
+          return;
+        }
+        ps.keywordSearch(query, function(data, psStatus) {
+          if (psStatus === kakao.maps.services.Status.OK && data[0]) {
+            openDistrictWeatherView(query, { lat: parseFloat(data[0].y), lng: parseFloat(data[0].x) });
+          } else {
+            showStatus('⚠️ "' + query + '" 위치를 찾지 못했습니다.');
+          }
+        });
+      });
+    });
+  }
+
   function searchAndShow() {
     var query = document.getElementById('searchInput').value.trim();
     if (!query) { showStatus('⚠️ 보고 싶은 지역이나 장소를 입력해주세요'); return; }
     bumpStat({ searches: 1 });
     // CCTV 기능이 공개되지 않은 상태면 예전처럼 지도 이동만 한다(안전한 실패)
     if (!CCTV_ENABLED && !isAdmin) { searchPlace(); return; }
+
+    // ⚠️ 2026-09 복구(ID111 · IV-4). ID103에서 "검색"과 "CCTV 날씨보기"를 한 버튼으로
+    // 합치면서 searchPlace()를 CCTV가 꺼진 상태의 폴백으로 밀어넣었고, 그 안에 있던
+    // 기록 이름 검색이 통째로 실행되지 않게 됐다. 코드는 멀쩡한데 부를 수 없는 상태로
+    // 몇 달을 있었다 - 기록 이름은 사용자가 입력하는 기능인데 그 이름으로 부를 수 없었다.
+    //
+    // 조용히 한쪽만 보여주면 같은 문제가 다시 생기므로, 둘 다 맞으면 둘 다 제시한다.
+    var journeyHits = findJourneyGroupsByKeyword(query);
+    var nameHits = sharedSpots.filter(function(s) {
+      return s.name && s.name.toLowerCase().indexOf(query.toLowerCase()) > -1;
+    });
+    if (journeyHits.length || nameHits.length) {
+      showSearchChoice(query, journeyHits, nameHits);
+      return;
+    }
+
     showStatus('🔎 "' + query + '" 지금 모습을 불러오는 중…');
     var geocoder = new kakao.maps.services.Geocoder();
     geocoder.addressSearch(query, function(result, status) {
@@ -2063,24 +2152,203 @@
     showStatus('📍 지도에서 남기고 싶은 자리를 눌러주세요 (유튜브·인스타 링크만 있으면 됩니다)');
   });
 
-  function openMyJourneys() {
+  // ================================================================
+  // 내 기록 (ID107~110 · IV-1·2·3·10·11, 2026-09 배포2)
+  // ----------------------------------------------------------------
+  // ⚠️ 예전 화면은 "기록 이름을 붙인 묶음"만 보여줬다. 기록 이름은 선택 입력인데,
+  // 비워두고 올린 기록은 이 목록에 영영 나타나지 않았다 - 선택 항목을 비웠다고
+  // 자기 기록이 사라지는 것은 말이 안 된다. 이제 내 것 전부를 보여주고, 묶음은
+  // 그 위에 얹는 방식으로 바꾼다.
+  //
+  // 그리고 배포1에서 "나만 보기"를 고르게 해놓고 그것을 바꾸는 화면을 만들지 않았다.
+  // 사용자에게 이 넷은 하나의 흐름이다 - 남긴다 / 내 것으로 본다 / 고친다 / 공개를 정한다.
+  // 이 화면이 뒤의 셋을 담당한다.
+  function getMyAllSpots() {
+    return sharedSpots.filter(function(s) { return s.id && isMine(s.ownerId); })
+      .sort(function(a, b) { return (b.createdAt || 0) - (a.createdAt || 0); });
+  }
+
+  function myRecordCount() { return getMyAllSpots().length; }
+
+  function visBadgeHtml(v) {
+    var key = v || VISIBILITY.PUBLIC;
+    var color = key === VISIBILITY.PUBLIC ? '#0a7d2c' : '#4338ca';
+    var bg = key === VISIBILITY.PUBLIC ? '#e8f5ec' : '#eef2ff';
+    var icon = key === VISIBILITY.PUBLIC ? '🌐' : (key === VISIBILITY.PRIVATE ? '🔒' : '📦');
+    return '<span style="display:inline-block;padding:2px 8px;border-radius:10px;background:' + bg +
+      ';color:' + color + ';font-size:11.5px;">' + icon + ' ' + (VISIBILITY_LABEL[key] || key) + '</span>';
+  }
+
+  function openMyRecords() {
+    var mine = getMyAllSpots();
     var groups = getMyJourneyGroups();
-    if (groups.length === 0) {
-      openModal('🧭 내 기록 목록', '<p style="color:#888;">아직 만든 기록 여정이 없습니다. 등록할 때 "기록 이름"을 입력하면 여기 모입니다.</p>');
+
+    var head =
+      '<p style="margin:0 0 4px;font-size:13px;color:#374151;">내가 남긴 기록 <b>' + mine.length + '곳</b></p>' +
+      '<p style="margin:0 0 12px;font-size:11.5px;color:#94a3b8;">🖥 이 브라우저에서만 보입니다 · 브라우저를 바꾸거나 저장기록을 지우면 이어지지 않습니다</p>';
+
+    if (mine.length === 0) {
+      openModal('🧭 내 기록', head + '<p style="color:#888;font-size:13px;">아직 남긴 기록이 없습니다. 지도를 눌러 첫 기록을 남겨보세요.</p>');
       return;
     }
-    var body = '<div style="display:flex;flex-direction:column;gap:8px;">' +
-      groups.map(function(g, idx) {
-        return '<button class="myJourneyBtn" data-idx="' + idx + '" style="text-align:left;padding:10px 12px;border-radius:8px;border:1px solid #eee;background:#f9f9f9;cursor:pointer;font-size:14px;">🧭 ' + g.name + ' <span style="color:#999;font-size:12px;">(' + g.spots.length + '곳)</span></button>';
-      }).join('') + '</div>';
-    openModal('🧭 내 기록 목록', body);
-    document.querySelectorAll('.myJourneyBtn').forEach(function(btn) {
-      btn.addEventListener('click', function() {
-        var g = groups[parseInt(btn.getAttribute('data-idx'), 10)];
-        openJourneyModal(g.name, g.spots);
+
+    var groupChips = groups.length
+      ? '<div style="margin:0 0 12px;display:flex;flex-wrap:wrap;gap:6px;">' +
+        groups.map(function(g, i) {
+          return '<button class="myGrpBtn" data-idx="' + i + '" style="border:1px solid #ddd;background:#fff;border-radius:14px;padding:4px 11px;font-size:12px;color:#4338ca;cursor:pointer;">🧭 ' +
+            g.name + ' ' + g.spots.length + '</button>';
+        }).join('') + '</div>'
+      : '';
+
+    var rows = mine.map(function(s, i) {
+      return '<div style="border:1px solid #eee;border-radius:10px;padding:10px 12px;">' +
+        '<div style="font-size:14px;font-weight:600;color:#111827;word-break:break-all;">' + escapeHtml(s.name) + '</div>' +
+        '<div style="margin:5px 0 8px;display:flex;flex-wrap:wrap;gap:5px;align-items:center;">' +
+          visBadgeHtml(s.visibility) +
+          (s.category ? '<span style="font-size:11.5px;color:#64748b;">' + categoryLabel(s.category) + '</span>' : '') +
+          (s.journey ? '<span style="font-size:11.5px;color:#4338ca;">🧭 ' + escapeHtml(s.journey) + '</span>' : '') +
+          '<span style="font-size:11.5px;color:#94a3b8;">👁 ' + (s.viewCount || 0) + '</span>' +
+        '</div>' +
+        '<div style="display:flex;gap:6px;flex-wrap:wrap;">' +
+          '<button class="mrOpen" data-i="' + i + '" style="border:1px solid #ddd;background:#fff;border-radius:7px;padding:5px 10px;font-size:12px;cursor:pointer;">지도에서 보기</button>' +
+          '<button class="mrEdit" data-i="' + i + '" style="border:1px solid #ddd;background:#fff;border-radius:7px;padding:5px 10px;font-size:12px;cursor:pointer;">✏️ 고치기</button>' +
+          '<button class="mrVis" data-i="' + i + '" style="border:1px solid #ddd;background:#fff;border-radius:7px;padding:5px 10px;font-size:12px;cursor:pointer;color:#4338ca;">' +
+            (s.visibility === VISIBILITY.PUBLIC ? '🔒 나만 보기로' : '🌐 공개로') + '</button>' +
+          '<button class="mrDel" data-i="' + i + '" style="border:1px solid #ddd;background:#fff;border-radius:7px;padding:5px 10px;font-size:12px;cursor:pointer;color:#b91c1c;">🗑</button>' +
+        '</div></div>';
+    }).join('');
+
+    openModal('🧭 내 기록', head + groupChips +
+      '<div style="display:flex;flex-direction:column;gap:8px;">' + rows + '</div>');
+
+    document.querySelectorAll('.myGrpBtn').forEach(function(b) {
+      b.addEventListener('click', function() {
+        var g = groups[parseInt(b.getAttribute('data-idx'), 10)];
+        if (g) openJourneyModal(g.name, g.spots);
+      });
+    });
+    document.querySelectorAll('.mrOpen').forEach(function(b) {
+      b.addEventListener('click', function() { openSpotModal(mine[parseInt(b.getAttribute('data-i'), 10)]); });
+    });
+    document.querySelectorAll('.mrEdit').forEach(function(b) {
+      b.addEventListener('click', function() { openEditSpotForm(mine[parseInt(b.getAttribute('data-i'), 10)]); });
+    });
+    document.querySelectorAll('.mrVis').forEach(function(b) {
+      b.addEventListener('click', function() {
+        var s = mine[parseInt(b.getAttribute('data-i'), 10)];
+        var next = s.visibility === VISIBILITY.PUBLIC ? VISIBILITY.PRIVATE : VISIBILITY.PUBLIC;
+        b.disabled = true;
+        db.collection('spots').doc(s.id).update({ visibility: next }).then(function() {
+          showStatus(next === VISIBILITY.PUBLIC ? '🌐 공개로 바꿨습니다.' : '🔒 나만 보기로 바꿨습니다.');
+          setTimeout(openMyRecords, 350); // 구독이 갱신될 시간을 준 뒤 목록을 다시 그림
+        }).catch(function(e) { alert('바꾸지 못했습니다: ' + e.message); b.disabled = false; });
+      });
+    });
+    document.querySelectorAll('.mrDel').forEach(function(b) {
+      b.addEventListener('click', function() {
+        var s = mine[parseInt(b.getAttribute('data-i'), 10)];
+        if (!confirm('"' + s.name + '"을(를) 지울까요? 되돌릴 수 없습니다.')) return;
+        b.disabled = true;
+        db.collection('spots').doc(s.id).delete().then(function() {
+          forgetMyDoc(s.id);
+          showStatus('🗑 지웠습니다.');
+          setTimeout(openMyRecords, 350);
+        }).catch(function(e) { alert('지우지 못했습니다: ' + e.message); b.disabled = false; });
       });
     });
   }
+  var openMyJourneys = openMyRecords; // 예전 이름으로 부르던 곳 호환
+
+  // 기록 고치기 (ID109 · IV-2)
+  // 위치는 이 화면에서 직접 바꾸지 않는다 - 지도를 봐야 고를 수 있기 때문에,
+  // "위치 다시 지정"을 누르면 지도 클릭 모드로 넘어가고 클릭한 자리로 저장한다.
+  var pendingRelocate = null;
+  function openEditSpotForm(spot) {
+    var cats = CATEGORY_OPTIONS.map(function(c) {
+      return '<button type="button" class="edCat" data-k="' + c.key + '" style="border:1px solid ' +
+        (spot.category === c.key ? '#4338ca' : '#ddd') + ';background:' + (spot.category === c.key ? '#eef2ff' : '#fff') +
+        ';color:' + (spot.category === c.key ? '#4338ca' : '#475569') +
+        ';border-radius:8px;padding:6px 11px;font-size:12.5px;cursor:pointer;">' + c.emoji + ' ' + c.label + '</button>';
+    }).join('');
+    openModal('✏️ 기록 고치기',
+      '<div style="display:flex;flex-direction:column;gap:12px;">' +
+      '<div><label style="font-size:12.5px;color:#475569;">장소 이름</label>' +
+      '<input id="edName" type="text" value="' + escapeAttr(spot.name) + '" style="width:100%;box-sizing:border-box;padding:9px 11px;border:1px solid #ddd;border-radius:8px;font-size:14px;margin-top:4px;"></div>' +
+      '<div><label style="font-size:12.5px;color:#475569;">링크 (유튜브·인스타)</label>' +
+      '<input id="edUrl" type="text" value="' + escapeAttr(spotSourceUrl(spot)) + '" style="width:100%;box-sizing:border-box;padding:9px 11px;border:1px solid #ddd;border-radius:8px;font-size:13px;margin-top:4px;"></div>' +
+      '<div><label style="font-size:12.5px;color:#475569;">종류</label>' +
+      '<div id="edCats" style="display:flex;flex-wrap:wrap;gap:6px;margin-top:4px;">' + cats + '</div></div>' +
+      '<div><label style="font-size:12.5px;color:#475569;">기록 이름 <span style="color:#94a3b8;">(선택 — 여러 곳을 하나로 묶을 때)</span></label>' +
+      '<input id="edJourney" type="text" value="' + escapeAttr(spot.journey || '') + '" style="width:100%;box-sizing:border-box;padding:9px 11px;border:1px solid #ddd;border-radius:8px;font-size:14px;margin-top:4px;"></div>' +
+      '<div><label style="font-size:12.5px;color:#475569;">위치</label>' +
+      '<div style="display:flex;align-items:center;gap:8px;margin-top:4px;">' +
+      '<span style="font-size:12.5px;color:#64748b;">' + spot.lat.toFixed(5) + ', ' + spot.lng.toFixed(5) + '</span>' +
+      '<button type="button" id="edRelocate" style="border:1px solid #ddd;background:#fff;border-radius:7px;padding:5px 10px;font-size:12px;cursor:pointer;">지도에서 다시 지정</button></div></div>' +
+      '<p id="edHint" style="margin:0;font-size:12.5px;color:#e11d48;min-height:16px;"></p>' +
+      '<div style="display:flex;gap:8px;">' +
+      '<button id="edSave" style="flex:1;padding:10px;border:none;border-radius:8px;background:#e11d48;color:#fff;font-size:14px;cursor:pointer;">저장</button>' +
+      '<button id="edCancel" style="flex:0 0 auto;padding:10px 14px;border:1px solid #ddd;border-radius:8px;background:#fff;color:#475569;font-size:14px;cursor:pointer;">취소</button>' +
+      '</div></div>');
+
+    var pickedCat = spot.category || null;
+    document.querySelectorAll('.edCat').forEach(function(b) {
+      b.addEventListener('click', function() {
+        pickedCat = b.getAttribute('data-k');
+        document.querySelectorAll('.edCat').forEach(function(x) {
+          var on = x === b;
+          x.style.borderColor = on ? '#4338ca' : '#ddd';
+          x.style.background = on ? '#eef2ff' : '#fff';
+          x.style.color = on ? '#4338ca' : '#475569';
+        });
+      });
+    });
+    document.getElementById('edCancel').addEventListener('click', openMyRecords);
+    document.getElementById('edRelocate').addEventListener('click', function() {
+      pendingRelocate = spot.id;
+      document.getElementById('modal').classList.remove('show');
+      document.getElementById('modalBody').innerHTML = '';
+      enterPlacingMode();
+      showStatus('📍 새 위치를 지도에서 눌러주세요 (고치는 중: ' + spot.name + ')');
+    });
+    document.getElementById('edSave').addEventListener('click', function() {
+      var name = document.getElementById('edName').value.trim();
+      var url = document.getElementById('edUrl').value.trim();
+      var hint = document.getElementById('edHint');
+      if (!name) { hint.textContent = '장소 이름을 입력해주세요.'; return; }
+      var patch = { name: name, category: pickedCat || null };
+      var journey = document.getElementById('edJourney').value.trim();
+      patch.journey = journey || null;
+      if (url && url !== spotSourceUrl(spot)) {
+        var info = extractContentInfo(url);
+        if (!info) { hint.textContent = '링크를 알아보지 못했어요. 유튜브·인스타 주소를 통째로 붙여넣어 주세요.'; return; }
+        patch.type = info.type;
+        if (info.type === 'youtube') { patch.videoId = info.videoId; patch.permalink = null; }
+        else { patch.permalink = info.permalink; patch.videoId = null; }
+        patch.vertical = !!info.vertical;
+      }
+      var btn = document.getElementById('edSave');
+      btn.disabled = true; btn.textContent = '저장 중…';
+      db.collection('spots').doc(spot.id).update(patch).then(function() {
+        showStatus('✅ 고쳤습니다.');
+        setTimeout(openMyRecords, 350);
+      }).catch(function(e) {
+        hint.textContent = '저장 실패: ' + e.message;
+        btn.disabled = false; btn.textContent = '저장';
+      });
+    });
+  }
+
+  // 등록 링크를 다시 문자열로 (고치기 화면의 입력값 채우기용)
+  function spotSourceUrl(spot) {
+    if (spot.type === 'youtube' && spot.videoId) return 'https://www.youtube.com/watch?v=' + spot.videoId;
+    return spot.permalink || '';
+  }
+  function escapeHtml(s) {
+    return String(s == null ? '' : s).replace(/[&<>"']/g, function(c) {
+      return ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c];
+    });
+  }
+  function escapeAttr(s) { return escapeHtml(s); }
 
   // 최근 현장(공익 제보) 목록 — 최신 등록순, 등록시각 강조 표시 (대관령 사례형 공익 제보 지원)
   // 등록량이 늘어날수록 오래된 제보까지 계속 섞여 나와 "최근"이라는 의미가 흐려지는 문제가 있어,
@@ -2964,6 +3232,10 @@
   function openMoreSheet() {
     var adminRow = document.getElementById('mAdminRow');
     if (adminRow) adminRow.style.display = isAdmin ? 'flex' : 'none';
+    // 내 기록 개수 - 사용자가 "내 것이 이어지고 있는지"를 확인하는 유일한 표시다.
+    // 이 숫자가 갑자기 0이 되면 소유권이 끊긴 것이므로 사용자가 바로 알아챈다.
+    var badge = document.getElementById('myCountBadge');
+    if (badge) { var n = myRecordCount(); badge.textContent = n ? n + '곳' : ''; }
     moreSheetEl.classList.add('show');
   }
   function closeMoreSheet() { moreSheetEl.classList.remove('show'); }
@@ -2972,7 +3244,7 @@
   moreSheetEl.querySelector('.dim').addEventListener('click', closeMoreSheet);
   document.getElementById('mNationwide').addEventListener('click', function() { closeMoreSheet(); openNationwideView(); });
   document.getElementById('mRecent').addEventListener('click', function() { closeMoreSheet(); renderRecentReports(); });
-  document.getElementById('mJourneys').addEventListener('click', function() { closeMoreSheet(); openMyJourneys(); });
+  document.getElementById('mJourneys').addEventListener('click', function() { closeMoreSheet(); openMyRecords(); });
   document.getElementById('mAdminRow').addEventListener('click', function() { closeMoreSheet(); renderAdminConsole(); });
 
   // "지금 여기" - 현위치로 이동한 뒤 그 지점의 지금 모습을 바로 보여준다.
@@ -3201,6 +3473,17 @@
       '<div style="min-width:0;"><div style="font-size:13px;">기존 기록 공개범위 채우기</div>' +
       '<div style="font-size:11.5px;color:#64748b;">공개범위 필드가 없는 예전 기록에 “공개”를 명시합니다. 한 번만 하면 됩니다.</div></div>' +
       '<button id="admBackfill" style="flex:0 0 auto;border:none;border-radius:6px;padding:6px 12px;font-size:12px;cursor:pointer;background:#1f2937;color:#fff;">실행</button></div>' +
+      // ⚠️ 2026-09 신설(배포2): 소유자 통합.
+      // 익명 UID는 브라우저마다 다르고 재발급되기도 한다. 실제로 등록분이 익명 UID 두 개와
+      // 익명인증 이전 형식(u_...) 두 개, 관리자 하나로 다섯 갈래로 쪼개져 있었다. 그러면
+      // 한 브라우저에서 자기 기록의 일부만 관리할 수 있고, u_ 형식은 서버가 주인으로
+      // 인정하지 않아 아예 손댈 수 없다. 관리자 계정은 이메일 기반이라 브라우저가 바뀌어도
+      // 같으므로, 시드 기록을 그쪽으로 모아두면 소유가 안정된다. 일반 사용자는 계속 익명이다.
+      '<div style="display:flex;align-items:center;justify-content:space-between;gap:10px;padding:8px 0;border-top:1px solid #f1f5f9;">' +
+      '<div style="min-width:0;"><div style="font-size:13px;">소유자 통합</div>' +
+      '<div style="font-size:11.5px;color:#64748b;">흩어진 소유자를 관리자 계정 하나로 모읍니다. 먼저 무엇이 옮겨질지 보여줍니다.</div></div>' +
+      '<button id="admMerge" style="flex:0 0 auto;border:none;border-radius:6px;padding:6px 12px;font-size:12px;cursor:pointer;background:#1f2937;color:#fff;">확인</button></div>' +
+      '<div id="admMergeBox" style="font-size:12px;color:#475569;"></div>' +
 
       '<div style="margin:18px 0 2px;padding-top:12px;border-top:1px solid #e2e8f0;">' +
       '<button id="admLogoutBtn" style="padding:8px 14px;border-radius:8px;border:1px solid #ddd;background:#fff;color:#475569;cursor:pointer;font-size:13px;">관리자 로그아웃</button>' +
@@ -3249,6 +3532,57 @@
           '유입은 도메인만 남기며, 링크에 <b>?from=yt&amp;v=이름</b>을 붙이면 영상 단위로 구분됩니다.</p>';
       });
     })();
+
+    // 소유자 통합 - 미리보기 먼저, 확인 후 실행
+    var mgBtn = document.getElementById('admMerge');
+    if (mgBtn) mgBtn.addEventListener('click', function() {
+      var box = document.getElementById('admMergeBox');
+      var me = firebase.auth().currentUser && firebase.auth().currentUser.uid;
+      if (!me) { box.textContent = '관리자 로그인 상태가 아닙니다.'; return; }
+      mgBtn.disabled = true; mgBtn.textContent = '조회 중…';
+      db.collection('spots').get().then(function(qs) {
+        var byOwner = {}, targets = [];
+        qs.forEach(function(d) {
+          var o = d.data().ownerId || '(없음)';
+          byOwner[o] = (byOwner[o] || 0) + 1;
+          if (o !== me) targets.push(d.ref);
+        });
+        var lines = Object.keys(byOwner).sort(function(a, b) { return byOwner[b] - byOwner[a]; })
+          .map(function(o) {
+            var mark = o === me ? ' ← 관리자(그대로)' : '';
+            return '<div>' + o.slice(0, 12) + '… <b>' + byOwner[o] + '건</b>' + mark + '</div>';
+          }).join('');
+        box.innerHTML = '<div style="margin:8px 0;padding:10px;background:#f8fafc;border-radius:8px;">' + lines +
+          '<div style="margin-top:8px;color:#b91c1c;">옮길 대상: <b>' + targets.length + '건</b> → 관리자 계정</div>' +
+          (targets.length ? '<button id="admMergeGo" style="margin-top:8px;border:none;border-radius:6px;padding:7px 14px;font-size:12px;cursor:pointer;background:#b91c1c;color:#fff;">' +
+            targets.length + '건 옮기기</button>' : '<div style="margin-top:6px;color:#0a7d2c;">이미 모두 관리자 소유입니다.</div>') +
+          '</div>';
+        mgBtn.disabled = false; mgBtn.textContent = '다시 확인';
+        var go = document.getElementById('admMergeGo');
+        if (go) go.addEventListener('click', function() {
+          if (!confirm(targets.length + '건의 소유자를 관리자 계정으로 옮깁니다.\n내용은 바뀌지 않습니다. 진행할까요?')) return;
+          go.disabled = true; go.textContent = '옮기는 중…';
+          // Firestore 배치는 한 번에 500건까지라 나눠서 보낸다
+          var chunks = [];
+          for (var i = 0; i < targets.length; i += 400) chunks.push(targets.slice(i, i + 400));
+          var p = Promise.resolve();
+          chunks.forEach(function(c) {
+            p = p.then(function() {
+              var b = db.batch();
+              c.forEach(function(ref) { b.update(ref, { ownerId: me }); });
+              return b.commit();
+            });
+          });
+          p.then(function() {
+            showStatus('✅ ' + targets.length + '건의 소유자를 통합했습니다.');
+            renderAdminConsole();
+          }).catch(function(e) { alert('통합 실패: ' + e.message); go.disabled = false; go.textContent = '다시 시도'; });
+        });
+      }).catch(function(e) {
+        box.textContent = '조회 실패: ' + e.message;
+        mgBtn.disabled = false; mgBtn.textContent = '확인';
+      });
+    });
 
     // 7. 기존 기록 공개범위 채우기 (일회성)
     var bfBtn = document.getElementById('admBackfill');
@@ -3459,6 +3793,17 @@
     if (longPressTimer) { clearTimeout(longPressTimer); longPressTimer = null; } // 짧게 뗀 경우 롱프레스 타이머 취소
     if (suppressNextMapClick) { suppressNextMapClick = false; return; } // 롱프레스로 이미 처리된 클릭은 무시(ID 67)
     if (!placingMode) return;
+    // 고치기 화면에서 "지도에서 다시 지정"으로 들어온 경우 - 등록이 아니라 위치만 옮긴다
+    if (pendingRelocate) {
+      var targetId = pendingRelocate;
+      pendingRelocate = null;
+      exitPlacingMode();
+      db.collection('spots').doc(targetId).update({ lat: pos.lat, lng: pos.lng }).then(function() {
+        showStatus('📍 위치를 옮겼습니다.');
+        setTimeout(openMyRecords, 350);
+      }).catch(function(e) { alert('위치를 옮기지 못했습니다: ' + e.message); });
+      return;
+    }
     pendingLatLng = pos; // {lat, lng}
     openRegisterForm();
   });
@@ -3663,7 +4008,8 @@
       confirmBtn.disabled = true;
       confirmBtn.textContent = '등록 중...';
 
-      db.collection('spots').add(newSpot).then(function() {
+      db.collection('spots').add(newSpot).then(function(ref) {
+        rememberMyDoc(ref.id); // 배포2 - 나중 소유자 이관용
         bumpStat({ registers: 1 });
         exitPlacingMode(); // 등록 성공시에만 등록모드 종료
         document.getElementById('modal').classList.remove('show');
