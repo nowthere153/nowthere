@@ -445,7 +445,7 @@
   // 생기면 재사용 가능) index.html에서는 호출하지 않음.
   // 배포된 파일이 최신인지 콘솔에서 한 줄로 확인하기 위한 표시.
   // 같은 이유로 여러 번 헛돌아서(옛 파일이 올라간 줄 모르고 디버깅) 넣어둠.
-  var NOWTHERE_VERSION = 'v2026-09-08b (배포2 + 관리자 전체 구독 수정)';
+  var NOWTHERE_VERSION = 'v2026-09-08c (배포2 + 스팟 창에서 고치기·공개전환)';
   console.log('[NowThere] ' + NOWTHERE_VERSION);
 
   var CCTV_PROXY_BASE_URL = 'https://api.nowthere.net';
@@ -1507,6 +1507,14 @@
     if (spot.id) {
       btnRow += '<button id="shareSpotBtn" style="padding:8px 14px;border-radius:8px;border:1px solid #ddd;background:white;color:#2563eb;cursor:pointer;font-size:13px;">🔗 공유 링크 복사</button>';
     }
+    // ⚠️ 2026-09 추가: 고치기·공개전환을 이 창에도 둔다.
+    // 처음에는 "내 기록" 목록에만 넣었는데, 사용자는 지도에서 그 기록을 보고 있는 중에
+    // 고치고 싶어 한다. 보고 있는 자리에서 못 하고 다른 화면으로 가라는 것은 앞뒤가 맞지 않는다.
+    if (canDelete && spot.id) {  // 고칠 수 있는 조건은 지울 수 있는 조건과 같다(본인 또는 관리자)
+      btnRow += '<button id="editSpotBtn" style="padding:8px 14px;border-radius:8px;border:1px solid #ddd;background:white;color:#4338ca;cursor:pointer;font-size:13px;">✏️ 고치기</button>';
+      btnRow += '<button id="visSpotBtn" style="padding:8px 14px;border-radius:8px;border:1px solid #ddd;background:white;color:#4338ca;cursor:pointer;font-size:13px;">' +
+        (spot.visibility === VISIBILITY.PUBLIC ? '🔒 나만 보기로' : '🌐 공개로') + '</button>';
+    }
     if (canDelete) {
       btnRow += '<button id="deleteSpotBtn" style="padding:8px 14px;border-radius:8px;border:1px solid #ddd;background:white;color:#888;cursor:pointer;font-size:13px;">🗑 이 스팟 삭제' + (isAdmin && !isMine(spot.ownerId) ? ' (관리자)' : '') + '</button>';
     }
@@ -1535,6 +1543,27 @@
         copyToClipboard(getSpotShareUrl(spot));
       });
     }
+
+    var edBtn = document.getElementById('editSpotBtn');
+    if (edBtn) edBtn.addEventListener('click', function() { openEditSpotForm(spot); });
+
+    var vsBtn = document.getElementById('visSpotBtn');
+    if (vsBtn) vsBtn.addEventListener('click', function() {
+      var next = spot.visibility === VISIBILITY.PUBLIC ? VISIBILITY.PRIVATE : VISIBILITY.PUBLIC;
+      vsBtn.disabled = true;
+      db.collection('spots').doc(spot.id).update({ visibility: next }).then(function() {
+        spot.visibility = next;
+        showStatus(next === VISIBILITY.PUBLIC ? '🌐 공개로 바꿨습니다.' : '🔒 나만 보기로 바꿨습니다.');
+        setTimeout(function() { openSpotModal(spot); }, 350); // 구독 갱신 후 창을 다시 그림
+      }).catch(function(e) {
+        vsBtn.disabled = false;
+        // 예전 방식(u_...)으로 등록된 기록은 서버가 소유자를 확인할 수 없어 거부된다.
+        // 그 경우 원인을 정확히 알려준다 - "실패했습니다"만으로는 무엇을 해야 할지 알 수 없다.
+        alert(String(spot.ownerId || '').indexOf('u_') === 0
+          ? '이 기록은 예전 방식으로 등록되어 서버가 소유자를 확인하지 못합니다.\n관리자 콘솔의 "소유자 통합"을 한 번 실행해주세요.'
+          : '바꾸지 못했습니다: ' + e.message);
+      });
+    });
 
     if (canDelete) {
       document.getElementById('deleteSpotBtn').addEventListener('click', function() {
@@ -2349,7 +2378,9 @@
         showStatus('✅ 고쳤습니다.');
         setTimeout(openMyRecords, 350);
       }).catch(function(e) {
-        hint.textContent = '저장 실패: ' + e.message;
+        hint.textContent = String(spot.ownerId || '').indexOf('u_') === 0
+          ? '이 기록은 예전 방식으로 등록되어 서버가 소유자를 확인하지 못합니다. 관리자 콘솔의 "소유자 통합"을 실행해주세요.'
+          : '저장 실패: ' + e.message;
         btn.disabled = false; btn.textContent = '저장';
       });
     });
