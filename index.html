@@ -4062,7 +4062,13 @@
       var checks = [
         ['국토부(천안 부근 고속·국도)', '/api/its-cctv?minX=127.05&maxX=127.25&minY=36.75&maxY=36.95'],
         ['UTIC(서울 도심)', '/api/utic-snapshot-list?minX=126.95&maxX=127.05&minY=37.53&maxY=37.60'],
-        ['지자체(울산)', '/api/local-cctv?minX=129.20&maxX=129.45&minY=35.45&maxY=35.65'],
+        // ⚠️ 2026-09-08: 지자체 소스는 충주·제주·울산 세 기관을 한 엔드포인트로 묶어
+        // 놓아서, 표본 하나(울산)만 찔러보면 그 기관이 살아 있는 한 "정상"으로 보인다.
+        // 실제로 제주만 전부 죽은 사례가 나왔는데 이 점검판은 초록이었다. 기관별로
+        // 따로 찔러야 어느 기관이 죽었는지가 화면에 나온다.
+        ['지자체·울산', '/api/local-cctv?minX=129.20&maxX=129.45&minY=35.45&maxY=35.65'],
+        ['지자체·제주', '/api/local-cctv?minX=126.10&maxX=127.00&minY=33.10&maxY=33.60'],
+        ['지자체·충주', '/api/local-cctv?minX=127.80&maxX=128.05&minY=36.90&maxY=37.05'],
         ['경기(수원)', '/api/gg-cctv?minX=126.95&maxX=127.10&minY=37.20&maxY=37.35']
       ];
       Promise.all(checks.map(function(c) {
