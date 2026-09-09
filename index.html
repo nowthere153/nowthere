@@ -122,6 +122,10 @@
   }
   #actionBar button span { font-size: 18px; line-height: 1; }
   #actionBar button.primary { color: #e11d48; }
+  /* 주 행동은 넓게, 서랍은 좁게. 크기 차이가 곧 "무엇이 중심인가"를 말한다. */
+  #actionBar button.main { flex: 3; font-size: 13px; }
+  #actionBar button.main span { font-size: 20px; }
+  #actionBar button:not(.main) { flex: 1; max-width: 96px; }
   #actionBar button:active { background: #f3f4f6; }
 
   /* 더보기 시트 */
@@ -481,18 +485,23 @@
        가운뎃점과 '또는'으로 섞어 한 번에 안 읽혔고, 무엇보다 넣으면 무엇이 나오는지를
        말하지 않았다. 지명을 넣으면 그 근처 CCTV가 열리는데 그 사실이 어디에도 없었다.
        범주 대신 실제 예를 보여준다 - 예를 보면 형식을 설명할 필요가 없어진다. -->
-  <input id="searchInput" type="text" placeholder="지명을 넣으면 그곳이 보여요">
+  <!-- 문구는 화면 폭에 따라 아래 initSearchPlaceholder()가 갈아 끼운다.
+       좁은 화면에서 잘린 문장은 안 쓴 것만 못하기 때문이다. -->
+  <input id="searchInput" type="text" placeholder="지명·주소·지역을 넣으면 그곳이 보여요">
   <button id="searchBtn">지금 보기</button>
 </div>
 <div id="searchHint">지명을 넣으면 그곳으로 지도가 옮겨가고, 주변 CCTV와 날씨를 함께 보여드려요</div>
 
+<!-- ⚠️ 2026-09-09 개편: 세 칸을 두 칸으로 줄인다.
+     세 칸의 성격이 서로 달랐다 - "내 영상을 지도에"는 이 사이트의 주 행동이고,
+     "지금 여기"는 보기 기능 하나이며, "더보기"는 서랍이다. 성격이 다른 셋을 같은
+     크기로 나란히 두니 무엇이 중심인지 화면이 말해주지 못했다.
+     "지금 여기"는 더보기의 둘러보기 칸으로 옮긴다 - 전국 한눈에·최근 제보와 같은
+     성격(둘러보기)이라 그쪽이 제자리다. 하단에는 주 행동 하나만 남는다.
+     ⚠️ "내 영상을 지도에"는 헤더의 "내가 담은 영상을 지도에"와 같은 말을 쓴다.
+     두 문장이 하나로 읽혀야 처음 온 사람이 무엇을 받는 곳인지 안다. -->
 <div id="actionBar">
-  <button id="hereBtn" class="primary"><span>☔</span>지금 여기</button>
-  <!-- ⚠️ 2026-09-09: "내 기록 남기기"는 이 사이트가 무엇을 받는지 아는 사람에게만
-       읽힌다. 처음 온 사람은 무엇을 남기는지 알 수 없다. 실제로 받는 것은 유튜브·
-       인스타 영상의 링크이고, 헤더도 "내가 담은 영상을 지도에"라고 말한다.
-       버튼이 헤더와 같은 말을 써야 두 문장이 하나로 읽힌다. -->
-  <button id="registerBtn" title="지도를 길게 눌러도 바로 등록창이 열립니다"><span>📍</span>내 영상을 지도에</button>
+  <button id="registerBtn" class="primary main" title="지도를 길게 눌러도 바로 등록창이 열립니다"><span>📍</span>내 영상을 지도에</button>
   <button id="moreBtn"><span>☰</span>더보기</button>
 </div>
 
@@ -501,6 +510,7 @@
   <div class="panel">
     <div class="grab"></div>
     <h4>둘러보기</h4>
+    <div class="it" id="hereBtn">☔ <b>지금 여기</b> <span style="margin-left:auto;font-size:11.5px;color:#94a3b8;">내 위치 주변 CCTV</span></div>
     <div class="it" id="mNationwide">🌍 <b>전국 한눈에</b></div>
     <div class="it" id="mRecent">🚨 <b>최근 제보</b></div>
     <h4>내 것</h4>
@@ -588,7 +598,7 @@
   // 생기면 재사용 가능) index.html에서는 호출하지 않음.
   // 배포된 파일이 최신인지 콘솔에서 한 줄로 확인하기 위한 표시.
   // 같은 이유로 여러 번 헛돌아서(옛 파일이 올라간 줄 모르고 디버깅) 넣어둠.
-  var NOWTHERE_VERSION = 'v2026-09-09l (현위치 버튼 되돌림)';
+  var NOWTHERE_VERSION = 'v2026-09-09m (하단 바 두 칸 · 검색 문구 확장)';
   console.log('[NowThere] ' + NOWTHERE_VERSION);
 
   var CCTV_PROXY_BASE_URL = 'https://api.nowthere.net';
@@ -2318,6 +2328,19 @@
 
   document.getElementById('searchBtn').addEventListener('click', searchAndShow);
   document.getElementById('searchIconBtn').addEventListener('click', searchAndShow);
+  // ⚠️ 넣을 수 있는 것이 지명만은 아니다 - 주소도, 구·군 같은 지역 이름도 된다.
+  // 다만 좁은 화면에서는 긴 문장이 잘려 뜻이 사라지므로 폭에 따라 갈아 끼운다.
+  (function initSearchPlaceholder() {
+    var el = document.getElementById('searchInput');
+    if (!el) return;
+    function apply() {
+      el.placeholder = (window.innerWidth < 480)
+        ? '지명·주소·지역을 넣어보세요'
+        : '지명·주소·지역을 넣으면 그곳이 보여요';
+    }
+    apply();
+    window.addEventListener('resize', apply);
+  })();
   // 힌트는 한 번 쓰고 나면 역할이 끝난다. 같은 브라우저에서는 다시 띄우지 않는다.
   (function initSearchHint() {
     var el = document.getElementById('searchHint');
@@ -4252,6 +4275,7 @@
   document.getElementById('moreBtn').addEventListener('click', openMoreSheet);
   moreSheetEl.querySelector('.dim').addEventListener('click', closeMoreSheet);
   document.getElementById('mNationwide').addEventListener('click', function() { closeMoreSheet(); openNationwideView(); });
+  // "지금 여기"는 더보기 안으로 옮겼다. 원래 붙어 있던 처리는 그대로 쓰고 시트만 닫는다.
   document.getElementById('mRecent').addEventListener('click', function() { closeMoreSheet(); renderRecentReports(); });
   document.getElementById('mJourneys').addEventListener('click', function() { closeMoreSheet(); openMyRecords(); });
   document.getElementById('mAdminRow').addEventListener('click', function() { closeMoreSheet(); renderAdminConsole(); });
@@ -4299,6 +4323,7 @@
   }
 
   document.getElementById('hereBtn').addEventListener('click', function() {
+    closeMoreSheet();
     askGeoConsent(runHereFlow);
   });
   function runHereFlow() {
