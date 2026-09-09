@@ -473,7 +473,7 @@
   // 생기면 재사용 가능) index.html에서는 호출하지 않음.
   // 배포된 파일이 최신인지 콘솔에서 한 줄로 확인하기 위한 표시.
   // 같은 이유로 여러 번 헛돌아서(옛 파일이 올라간 줄 모르고 디버깅) 넣어둠.
-  var NOWTHERE_VERSION = 'v2026-09-08d (문구 2차 개편 + 풍경 컨셉 뷰 · 관리자 큐레이션)';
+  var NOWTHERE_VERSION = 'v2026-09-09a (지금 그곳 · 회상 줄 — 두 축을 잇는다)';
   console.log('[NowThere] ' + NOWTHERE_VERSION);
 
   var CCTV_PROXY_BASE_URL = 'https://api.nowthere.net';
@@ -1370,6 +1370,39 @@
     return day + '일 전';
   }
 
+  // ---------------------------------------------------------------------------
+  // 회상 줄 (2026-09-09)
+  // ---------------------------------------------------------------------------
+  // 우리가 저장하는 것은 좌표와 영상이지만, 사람이 남기는 것은 그때의 감정이다.
+  // 좌표와 영상만 되돌려주면 자료가 되고, "언제였는지"와 "그때 그곳이 어땠는지"를
+  // 함께 되돌려주면 기억이 된다. 저장할 것을 새로 늘리지 않고, 이미 가진 두 값
+  // (등록 시각과 좌표)만으로 그 한 줄을 만든다.
+  // 노을 정렬과 같은 계산을 쓴다 - 그때 그 자리의 해가 언제 졌는지는 위경도와
+  // 날짜만으로 나오는 값이라, 기록을 남길 때 따로 물어볼 필요가 없다.
+  function recallLine(spot) {
+    if (!spot || !spot.createdAt) return '';
+    var d = new Date(spot.createdAt);
+    var kstMin = ((d.getUTCHours() + 9) % 24) * 60 + d.getUTCMinutes();
+    var kst = new Date(spot.createdAt + 9 * 3600 * 1000);
+    var y = kst.getUTCFullYear(), mo = kst.getUTCMonth() + 1, da = kst.getUTCDate();
+    var parts = [y + '년 ' + mo + '월 ' + da + '일 ' + hhmm(kstMin)];
+    var sun = (spot.lat != null && spot.lng != null) ? sunsetMinutesKST(spot.lat, spot.lng, d) : null;
+    if (sun != null) {
+      var gap = kstMin - sun;
+      // 노을 무렵을 벗어난 시각까지 굳이 해를 들먹이면 문장이 겉돈다. 그 언저리에만 붙인다.
+      if (gap >= -90 && gap <= 45) {
+        parts.push(gap < -3 ? '해 지기 ' + (-gap) + '분 전'
+                 : (gap > 3 ? '해 진 뒤 ' + gap + '분' : '해 지던 그 순간'));
+      }
+    }
+    var now = new Date(Date.now() + 9 * 3600 * 1000);
+    var years = now.getUTCFullYear() - y;
+    if (years >= 1 && (now.getUTCMonth() + 1) === mo && now.getUTCDate() === da) {
+      parts.push('오늘로 ' + years + '년 전');
+    }
+    return '<p style="margin:8px 0 0;font-size:12px;color:#94a3b8;">🕘 ' + parts.join(' · ') + '</p>';
+  }
+
   // 핀별 고유 공유 링크 생성 (예: index.html?spot=abc123) — 매물 페이지 등에 붙여넣으면
   // 접속 즉시 지도가 해당 스팟으로 이동하고 정보창이 자동으로 열립니다.
   function getSpotShareUrl(spot) {
@@ -1523,6 +1556,7 @@
       body += '<p style="margin-bottom:8px;padding:8px 10px;border-radius:8px;background:#f0f9ff;color:#075985;font-size:12.5px;">🏙️ 조망 인증 링크 — 아래 "공유 링크 복사"를 눌러 매물 페이지 등에 붙여넣으면 이 뷰를 그대로 보여줄 수 있어요.</p>';
     }
     body += buildEmbedHtml(spot);
+    body += recallLine(spot);
     body += weatherLinePlaceholder('spotWeatherLine');
     if (spot.journey) {
       body += '<button id="viewJourneyBtn" style="margin-top:10px;padding:8px 14px;border-radius:8px;border:1px solid #ddd;background:white;color:#4338ca;cursor:pointer;font-size:13px;">🧭 이 여정 전체보기</button>';
@@ -1533,6 +1567,14 @@
     }
 
     var btnRow = '<div style="margin-top:12px;display:flex;gap:8px;flex-wrap:wrap;">';
+    // ⚠️ 2026-09-09: 두 축이 처음으로 한 화면에서 만나는 자리다.
+    // 지금까지 "남긴다"(스팟)와 "본다"(CCTV)는 같은 지도 위에 있었을 뿐 서로 닿은 적이
+    // 없었다. 그런데 이 서비스가 유일하게 가진 것은 바로 그 곱이다 - 내가 그날 담은
+    // 그곳을, 지금 남의 눈으로 다시 보는 것. 네이버도 카카오도 CCTV를 교통으로만 쓰니
+    // 이걸 할 수 있는 곳이 없다. 기능을 새로 만드는 것이 아니라 이미 있는 둘을 잇는다.
+    if ((CCTV_ENABLED || isAdmin) && spot.lat != null && spot.lng != null) {
+      btnRow += '<button id="spotNowBtn" style="padding:8px 14px;border-radius:8px;border:1px solid #bfdbfe;background:#eff6ff;color:#1d4ed8;cursor:pointer;font-size:13px;font-weight:700;">📷 지금 그곳</button>';
+    }
     if (spot.id) {
       btnRow += '<button id="shareSpotBtn" style="padding:8px 14px;border-radius:8px;border:1px solid #ddd;background:white;color:#2563eb;cursor:pointer;font-size:13px;">🔗 공유 링크 복사</button>';
     }
@@ -1555,6 +1597,32 @@
 
     openModal(spot.name, body);
     fillWeatherLine('spotWeatherLine', spot.lat, spot.lng);
+
+    var nowBtn = document.getElementById('spotNowBtn');
+    if (nowBtn) nowBtn.addEventListener('click', function() {
+      nowBtn.disabled = true;
+      nowBtn.textContent = '📷 그곳의 카메라를 찾는 중…';
+      // 사진 유무를 따지지 않는다(imageOnly=false). 여기서 중요한 것은 "가장 가까운
+      // 그곳"이지 "그림이 잘 나오는 곳"이 아니다. 사진이 없으면 실시간으로 열린다.
+      findNearestCctv(spot.lat, spot.lng, null, function(item) {
+        if (!item) {
+          nowBtn.disabled = false;
+          nowBtn.textContent = '📷 지금 그곳';
+          showStatus('이 근처에는 지금 볼 수 있는 카메라가 없습니다');
+          return;
+        }
+        var ilat = parseFloat(item.coordy), ilng = parseFloat(item.coordx);
+        var km = approxKmDistance(spot.lat, spot.lng, ilat, ilng);
+        openCctvPopup({
+          name: spot.name + ' — 지금 (' + (item.cctvname || '가까운 카메라') + ' · ' + formatKmLabel(km) + ')',
+          lat: ilat, lng: ilng,
+          imageUrl: item.imageUrl || '', streamUrl: item.cctvurl || '',
+          mp4Url: item.mp4Url || '', liveFirst: !!item.liveFirst, relayLive: !!item.relayLive,
+          ggResolve: !!item.ggResolve, streamResolve: item.streamResolve || '',
+          maxSeconds: item.maxSeconds || 0
+        });
+      }, false);
+    });
     if (spot.type === 'instagram' && window.instgrm) {
       window.instgrm.Embeds.process();
     }
