@@ -598,7 +598,7 @@
   // 생기면 재사용 가능) index.html에서는 호출하지 않음.
   // 배포된 파일이 최신인지 콘솔에서 한 줄로 확인하기 위한 표시.
   // 같은 이유로 여러 번 헛돌아서(옛 파일이 올라간 줄 모르고 디버깅) 넣어둠.
-  var NOWTHERE_VERSION = 'v2026-09-09m (하단 바 두 칸 · 검색 문구 확장)';
+  var NOWTHERE_VERSION = 'v2026-09-09n (비구름 안내 문구)';
   console.log('[NowThere] ' + NOWTHERE_VERSION);
 
   var CCTV_PROXY_BASE_URL = 'https://api.nowthere.net';
@@ -4222,7 +4222,9 @@
       showStatus('⚠️ 비구름 자료가 아직 설정되지 않았습니다 (관리자 콘솔 8번)');
       return;
     }
-    showStatus(radarMode === 'satellite' ? '☁️ 구름을 불러오는 중…' : '🌧️ 비를 불러오는 중…');
+    // ⚠️ "비를 불러오는 중"은 비를 부른다는 말로 읽힌다. 불러오는 것은 비가 아니라
+    // 비가 어디 오는지를 그린 화면이다. 말이 실제와 어긋나면 그 자체로 어색해진다.
+    showStatus(radarMode === 'satellite' ? '☁️ 구름 낀 곳을 불러오는 중…' : '🌧️ 비 오는 곳을 불러오는 중…');
     resolveRadarTemplate(function(ok) {
       if (!ok) { showStatus('⚠️ 비구름 자료를 불러오지 못했습니다'); return; }
       radarOn = true;
@@ -4231,6 +4233,15 @@
       refreshRadarLegend();
       if (btn) btn.classList.add('on');
       drawRadar();
+      // ⚠️ 비가 안 오면 화면에 아무 색도 안 나타난다. 그건 정상인데, 켠 직후에
+      // 아무 변화가 없으면 사람은 "안 켜졌다"로 읽는다. 무엇이 보일 것인지 한 번
+      // 말해두면 빈 화면도 답이 된다.
+      setTimeout(function() {
+        if (!radarOn) return;
+        showStatus(radarMode === 'satellite'
+          ? '☁️ 구름이 있는 곳만 하얗게 나타납니다'
+          : '🌧️ 비가 오는 곳만 색으로 나타납니다 · 지금 비가 없으면 화면은 그대로입니다');
+      }, 700);
       // 레이더는 5~10분마다 새 화면이 나온다. 그보다 자주 부를 이유가 없다.
       if (radarRefreshTimer) clearInterval(radarRefreshTimer);
       radarRefreshTimer = setInterval(function() {
