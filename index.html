@@ -3938,7 +3938,11 @@
       '<button id="admMerge" style="flex:0 0 auto;border:none;border-radius:6px;padding:6px 12px;font-size:12px;cursor:pointer;background:#1f2937;color:#fff;">확인</button></div>' +
       '<div id="admMergeBox" style="font-size:12px;color:#475569;"></div>' +
 
+      // ⚠️ 2026-09-09: 판 번호를 화면에 드러낸다.
+      // "올렸는데 안 바뀐 것 같다"를 판정할 방법이 콘솔뿐이었다. 올린 파일이 실제로
+      // 지금 돌고 있는 파일인지 눈으로 확인할 수 있어야 한다.
       '<div style="margin:18px 0 2px;padding-top:12px;border-top:1px solid #e2e8f0;">' +
+      '<div style="font-size:11.5px;color:#94a3b8;margin-bottom:10px;">지금 이 화면의 판 번호 — <b style="color:#475569;">' + NOWTHERE_VERSION + '</b></div>' +
       '<button id="admLogoutBtn" style="padding:8px 14px;border-radius:8px;border:1px solid #ddd;background:#fff;color:#475569;cursor:pointer;font-size:13px;">관리자 로그아웃</button>' +
       '</div>' +
       '</div>';
