@@ -26,7 +26,13 @@
      밀리지 않도록 방어함. */
   html, body { overflow-x: hidden; max-width: 100%; }
   body { font-family: -apple-system, "Apple SD Gothic Neo", sans-serif; }
-  #map { width: 100%; height: 100vh; }
+  /* ⚠️ 2026-09-09: position이 없으면 카카오가 지도 안에 만드는 층들(타일·마커 등)이
+     자기들 z-index를 가지고 페이지 전체와 직접 경쟁한다. 그러면 우리가 그 위에 무엇을
+     얹어도 지도 안쪽 층에 덮여 보이지 않는다 - 비구름이 켜졌는데 아무것도 안 보이던
+     원인이 이것이다. position과 z-index를 주어 지도를 하나의 층으로 묶는다.
+     이렇게 하면 지도 내부가 아무리 여러 겹이어도 통째로 z-index 0 한 층이 되고,
+     그 위(z-index 5)에 비구름을, 더 위(9~16)에 검색창·버튼을 얹을 수 있다. */
+  #map { width: 100%; height: 100vh; position: relative; z-index: 0; }
 
   /* ---------------------------------------------------------------------------
      지도 컨트롤 한 줄 (ID103 2차)
@@ -433,7 +439,7 @@
        볼 것인가"라는 하나의 질문이고, 컨셉 뷰만 더보기 시트 안에 넣으면 있는 줄도
        모르는 기능이 된다. 담긴 화면이 하나도 없으면 버튼 자체를 감춘다(빈 방 금지). -->
   <button id="conceptBtn" class="txt" title="바다·노을 같은 풍경으로 보기" aria-label="풍경 보기" style="display:none;">풍경</button>
-  <button id="radarBtn" class="txt" title="비구름 겹쳐 보기" aria-label="비구름" style="display:none;">비</button>
+  <button id="radarBtn" class="txt" title="비구름 겹쳐 보기" aria-label="비구름" style="display:none;">비구름</button>
   <!-- 현위치: 가운데 점을 둘러싼 원에 십자선 - 구글·카카오가 쓰는 표준 형태.
        예전 과녁(🎯) 이모지는 "목표·타겟"으로 읽혀 뜻이 어긋났다(실사용 지적). -->
   <button id="locateBtn" title="지도를 내 위치로" aria-label="현위치">
@@ -570,7 +576,7 @@
   // 생기면 재사용 가능) index.html에서는 호출하지 않음.
   // 배포된 파일이 최신인지 콘솔에서 한 줄로 확인하기 위한 표시.
   // 같은 이유로 여러 번 헛돌아서(옛 파일이 올라간 줄 모르고 디버깅) 넣어둠.
-  var NOWTHERE_VERSION = 'v2026-09-09g (비구름 조각 배율 상한 z7)';
+  var NOWTHERE_VERSION = 'v2026-09-09h (비구름 쌓임 순서 수정 · 조각 확인)';
   console.log('[NowThere] ' + NOWTHERE_VERSION);
 
   var CCTV_PROXY_BASE_URL = 'https://api.nowthere.net';
@@ -4010,10 +4016,13 @@
     return Math.max(2, Math.min(RADAR_MAX_ZOOM, z));
   }
 
+  var radarTileTotal = 0, radarTileOk = 0, radarTileFail = 0;
+
   function drawRadar() {
     var layer = document.getElementById('radarLayer');
     if (!layer) return;
     if (!radarOn || !radarTemplate) { layer.innerHTML = ''; return; }
+    radarTileTotal = radarTileOk = radarTileFail = 0;
     var proj = map.getProjection();
     if (!proj || typeof proj.containerPointFromCoords !== 'function') return;
     var b = mapGetBounds();
@@ -4034,7 +4043,12 @@
         img.style.cssText = 'position:absolute;left:' + Math.round(nw.x) + 'px;top:' + Math.round(nw.y) +
           'px;width:' + Math.ceil(se.x - nw.x + 1) + 'px;height:' + Math.ceil(se.y - nw.y + 1) +
           'px;opacity:' + RADAR_OPACITY + ';';
-        img.onerror = function() { this.style.visibility = 'hidden'; };
+        // ⚠️ 조각이 왔는지 세어 둔다. 비가 안 오면 조각은 "투명한 그림"이라 화면에는
+        // 아무것도 안 보이는데, 그것과 "조각을 못 받아온 것"이 눈으로는 구분되지 않는다.
+        // 숫자가 있어야 어느 쪽인지 말할 수 있다.
+        radarTileTotal++;
+        img.onload = function() { radarTileOk++; refreshRadarLegend(); };
+        img.onerror = function() { radarTileFail++; this.style.visibility = 'hidden'; refreshRadarLegend(); };
         frag.appendChild(img);
       }
     }
@@ -4060,8 +4074,23 @@
     }
     // 관리자에게만 지금 쓰는 조각 배율을 보여준다. 어긋났을 때 어디를 만져야 하는지
     // 숫자 하나로 알 수 있어야 한다(이번에 그 숫자가 없어 한 바퀴 돌았다).
-    if (isAdmin) base += ' <span style="opacity:.6">· z' + radarZoomFor() + '</span>';
+    if (isAdmin) {
+      base += ' <span style="opacity:.6">· z' + radarZoomFor() +
+        ' · 조각 ' + radarTileOk + '/' + radarTileTotal + (radarTileFail ? ' (실패 ' + radarTileFail + ')' : '') + '</span>';
+    }
     return base;
+  }
+  function refreshRadarLegend() {
+    var lg = document.getElementById('radarLegend');
+    if (lg && radarOn) lg.innerHTML = radarLegendText();
+  }
+
+  // 지금 화면 한가운데에 해당하는 조각 한 장의 주소. 관리자가 눈으로 확인할 때 쓴다.
+  function radarSampleTileUrl() {
+    if (!radarTemplate) return '';
+    var c = map.getCenter(), z = radarZoomFor();
+    var x = Math.floor(lngToTileX(c.getLng(), z)), y = Math.floor(latToTileY(c.getLat(), z));
+    return radarTemplate.replace('{z}', z).replace('{x}', x).replace('{y}', y);
   }
 
   // 제공자별로 "지금 쓸 주소"를 만든다. 실패하면 켜지 않는다(빈 화면을 켜두면
@@ -4419,7 +4448,9 @@
       '<button id="admRadarOff" style="border:1px solid #cbd5e1;border-radius:6px;padding:7px 12px;font-size:12px;cursor:pointer;background:#fff;color:#475569;">끄기</button>' +
       '<button id="admRadarUrl" style="border:1px solid #cbd5e1;border-radius:6px;padding:7px 12px;font-size:12px;cursor:pointer;background:#fff;color:#475569;">직접 주소 넣기(고급)</button>' +
       '<button id="admRadarZoom" style="border:1px solid #cbd5e1;border-radius:6px;padding:7px 12px;font-size:12px;cursor:pointer;background:#fff;color:#475569;">조각 배율 상한 (지금 z' + RADAR_MAX_ZOOM + ')</button>' +
+      '<button id="admRadarPeek" style="border:1px solid #cbd5e1;border-radius:6px;padding:7px 12px;font-size:12px;cursor:pointer;background:#fff;color:#475569;">조각 한 장 보기</button>' +
       '</div>' +
+      '<div id="admRadarPeekBox"></div>' +
       '<p style="margin:4px 0 0;font-size:11.5px;color:#64748b;">' +
       '<b>먼저 RainViewer로 켜서 얹는 위치가 맞는지 확인</b>하시는 것을 권합니다. 설정이 필요 없어 바로 켜집니다.<br>' +
       '다만 <b>상업적 이용 조건은 제공처마다 다릅니다</b> — 수익화를 전제로 한다면 CCTV 소스를 고를 때처럼 조건을 확인하고 정해야 합니다. ' +
@@ -4785,6 +4816,35 @@
     if (roBtn) roBtn.addEventListener('click', function() {
       saveRadarSource({ radarProvider: '', radarTileUrl: '' }, '비구름을 껐습니다.');
     });
+    // ⚠️ 비가 안 오면 조각은 "투명한 그림"이라 화면에 아무것도 안 보인다. 그것과
+    // "조각을 못 받아온 것"은 눈으로 구분되지 않는다. 그래서 조각 한 장을 바둑판
+    // 무늬 위에 띄워 본다 - 무늬만 보이면 비가 없는 것이고, 아무것도 안 뜨면 못 받은
+    // 것이며, 글자가 보이면 그 배율의 조각이 없는 것이다. 셋이 눈으로 갈린다.
+    var rpBtn = document.getElementById('admRadarPeek');
+    if (rpBtn) rpBtn.addEventListener('click', function() {
+      var box = document.getElementById('admRadarPeekBox');
+      if (!box) return;
+      if (!radarConfigured()) { box.innerHTML = '<p style="font-size:12px;color:#b91c1c;">먼저 출처를 정해주세요.</p>'; return; }
+      box.innerHTML = '<p style="font-size:12px;color:#94a3b8;margin:8px 0;">조각 주소를 받아오는 중…</p>';
+      resolveRadarTemplate(function(ok) {
+        if (!ok) { box.innerHTML = '<p style="font-size:12px;color:#b91c1c;margin:8px 0;">조각 주소를 받지 못했습니다.</p>'; return; }
+        var url = radarSampleTileUrl();
+        var checker = 'background-image:linear-gradient(45deg,#e2e8f0 25%,transparent 25%),linear-gradient(-45deg,#e2e8f0 25%,transparent 25%),linear-gradient(45deg,transparent 75%,#e2e8f0 75%),linear-gradient(-45deg,transparent 75%,#e2e8f0 75%);background-size:16px 16px;background-position:0 0,0 8px,8px -8px,-8px 0;';
+        box.innerHTML =
+          '<div style="margin-top:8px;padding:10px 12px;background:#f8fafc;border-radius:8px;">' +
+          '<div style="font-size:11.5px;color:#64748b;word-break:break-all;margin-bottom:8px;">' + escapeHtml(url) + '</div>' +
+          '<img id="admRadarPeekImg" src="' + escapeAttr(url) + '" alt="" style="width:256px;max-width:100%;image-rendering:pixelated;border:1px solid #cbd5e1;border-radius:6px;' + checker + '">' +
+          '<div id="admRadarPeekMsg" style="font-size:12px;color:#475569;margin-top:8px;">불러오는 중…</div>' +
+          '<div style="font-size:11.5px;color:#94a3b8;margin-top:6px;">바둑판 무늬만 보이면 <b>지금 이 자리에 비가 없는 것</b>입니다(정상). ' +
+          '아무것도 안 뜨면 조각을 못 받은 것이고, 글자가 보이면 그 배율의 조각이 없는 것입니다.</div>' +
+          '</div>';
+        var im = document.getElementById('admRadarPeekImg');
+        var ms = document.getElementById('admRadarPeekMsg');
+        im.onload = function() { ms.textContent = '조각을 받았습니다 (' + im.naturalWidth + '×' + im.naturalHeight + ')'; ms.style.color = '#0a7d2c'; };
+        im.onerror = function() { ms.textContent = '조각을 받지 못했습니다 - 주소나 출처를 확인해주세요.'; ms.style.color = '#b91c1c'; };
+      });
+    });
+
     var rzBtn = document.getElementById('admRadarZoom');
     if (rzBtn) rzBtn.addEventListener('click', function() {
       var val = prompt('조각 배율 상한을 정합니다 (2~12).\n\n' +
