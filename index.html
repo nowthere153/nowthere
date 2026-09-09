@@ -82,8 +82,15 @@
   }
 
   /* 하단 주 행동 바 - 엄지가 가장 편하게 닿는 자리 */
+  /* ⚠️ 2026-09-09: 하단 바가 지도 왼쪽 아래의 축척·저작권 표시를 완전히 덮고 있었다.
+     보기 문제만이 아니다 - 카카오맵은 로고와 저작권이 가려지지 않을 것을 이용 조건으로
+     둔다. 그래서 두 가지를 바꾼다.
+       ① 바닥에서 26px 띄운다 → 화면 맨 아래 띠가 항상 비어 축척·저작권이 드러난다.
+       ② 넓은 화면에서는 가운데 정렬로 폭을 묶는다 → 좌우가 열려 축척이 온전히 보이고,
+          PC에서 버튼 세 개가 화면 끝까지 늘어나 헐거워 보이던 것도 함께 해결된다. */
   #actionBar {
-    position: absolute; left: 12px; right: 12px; bottom: 12px; z-index: 13;
+    position: absolute; left: 50%; transform: translateX(-50%); bottom: 26px; z-index: 13;
+    width: min(560px, calc(100% - 24px));
     background: #fff; border-radius: 16px; box-shadow: 0 3px 16px rgba(0,0,0,0.2);
     display: flex; overflow: hidden;
   }
@@ -152,10 +159,16 @@
     color: #fff; font-size: 11.5px; font-weight: 600; padding: 4px 8px;
   }
 
+  /* ⚠️ 2026-09-09: 이 배너가 하단 바와 같은 높이(bottom 16px)·같은 층(z-index 13)에
+     있어서 통째로 가려져 있었다. "내 기록 남기기"를 눌러도 무엇을 해야 하는지 알 수
+     없는 상태였고, 안내가 안 보이니 등록 자체가 막힌 것과 같았다.
+     하단 바 위로 올리고 층을 하나 높인다. 그리고 nowrap을 걷어낸다 - 좁은 화면에서
+     한 줄로 버티느라 문장이 화면 밖으로 밀려나가 반만 보였다. */
   #placingBanner {
-    display: none; position: absolute; bottom: 16px; left: 50%; transform: translateX(-50%);
-    z-index: 13; background: #111827; color: white; padding: 10px 18px; border-radius: 20px;
-    font-size: 13px; box-shadow: 0 2px 10px rgba(0,0,0,0.3); text-align: center; white-space: nowrap;
+    display: none; position: absolute; bottom: 92px; left: 50%; transform: translateX(-50%);
+    z-index: 15; background: #111827; color: white; padding: 10px 16px; border-radius: 16px;
+    font-size: 13px; line-height: 1.5; box-shadow: 0 2px 10px rgba(0,0,0,0.3); text-align: center;
+    max-width: min(460px, calc(100% - 24px));
   }
   #placingBanner.show { display: block; }
 
@@ -198,7 +211,9 @@
     #searchBox { top: 56px; left: 10px; right: 10px; width: auto; max-width: none; transform: none; }
     #searchInput { padding: 9px 4px; font-size: 14.5px; }
     #searchBtn { padding: 9px 14px; font-size: 13.5px; }
-    #mapControls { right: 10px; bottom: 68px; gap: 6px; }
+    #actionBar { bottom: 22px; width: calc(100% - 20px); }
+    #placingBanner { bottom: 86px; font-size: 12.5px; padding: 9px 14px; }
+    #mapControls { right: 10px; bottom: 80px; gap: 6px; }
     #mapControls button { width: 39px; height: 39px; font-size: 19px; }
     #mapControls button.txt { font-size: 10.5px; }
     #mapControls button svg { width: 19px; height: 19px; }
@@ -383,7 +398,11 @@
   <span class="sIcon">🔎</span>
   <!-- ⚠️ 2026-09(ID104 · DC-05): 질문형은 "무엇이든 답할 수 있는 지도"만 쓸 자격이 있다.
        좁은 지도가 질문하면 사용자는 범위 밖의 것을 넣고 반드시 실망한다. 답할 수 있는 것을 선언한다. -->
-  <input id="searchInput" type="text" placeholder="지명·주소 또는 내 기록 이름">
+  <!-- ⚠️ 2026-09-09 재검토. 이전 문구 "지명·주소 또는 내 기록 이름"은 세 범주를
+       가운뎃점과 '또는'으로 섞어 한 번에 안 읽혔고, 무엇보다 넣으면 무엇이 나오는지를
+       말하지 않았다. 지명을 넣으면 그 근처 CCTV가 열리는데 그 사실이 어디에도 없었다.
+       범주 대신 실제 예를 보여준다 - 예를 보면 형식을 설명할 필요가 없어진다. -->
+  <input id="searchInput" type="text" placeholder="충주, 서울역, 내 기록 이름">
   <button id="searchBtn">보기</button>
 </div>
 
@@ -483,7 +502,7 @@
   // 생기면 재사용 가능) index.html에서는 호출하지 않음.
   // 배포된 파일이 최신인지 콘솔에서 한 줄로 확인하기 위한 표시.
   // 같은 이유로 여러 번 헛돌아서(옛 파일이 올라간 줄 모르고 디버깅) 넣어둠.
-  var NOWTHERE_VERSION = 'v2026-09-09b (돌아가기 · 시간대 판정 · 문구 정정)';
+  var NOWTHERE_VERSION = 'v2026-09-09c (하단 바·안내 배너 겹침 해소 · 검색 문구 · 레이더 점검)';
   console.log('[NowThere] ' + NOWTHERE_VERSION);
 
   var CCTV_PROXY_BASE_URL = 'https://api.nowthere.net';
@@ -4035,6 +4054,19 @@
       '<button id="admDiag" style="flex:0 0 auto;border:none;border-radius:6px;padding:6px 12px;font-size:12px;cursor:pointer;background:#1f2937;color:#fff;">진단</button></div>' +
       '<div id="admDiagBox" style="font-size:12px;color:#475569;"></div>' +
 
+      // ⚠️ 2026-09-09 신설: 레이더 겹쳐보기가 이 지도에서 가능한지 먼저 잰다.
+      // 겹쳐보기는 "이미지를 지도 위에 얹는다"가 아니라 "두 개의 지도 투영을 맞춘다"는
+      // 문제다. 레이더 영상은 웹 메르카토르로 그려져 있고, 카카오맵의 기본 좌표계는
+      // 그것과 다르다. 다르면 이미지가 위도에 따라 조금씩 어긋나고, 전국 단위로 보면
+      // 눈에 띄게 밀린다. 그러니 "된다/안 된다"를 코드로 단정하기 전에 실제 화면에서
+      // 재는 것이 먼저다(CCTV 때와 같은 실수를 반복하지 않기 위한 순서다).
+      '<div style="font-weight:700;margin:16px 0 6px;">8. 레이더 겹쳐보기 가능성</div>' +
+      '<div style="display:flex;align-items:center;justify-content:space-between;gap:10px;padding:8px 0;">' +
+      '<div style="min-width:0;"><div style="font-size:13px;">지도 투영 · 타일 지원 점검</div>' +
+      '<div style="font-size:11.5px;color:#64748b;">기상 레이더를 지도에 겹칠 수 있는 구조인지 실제로 재봅니다.</div></div>' +
+      '<button id="admRadar" style="flex:0 0 auto;border:none;border-radius:6px;padding:6px 12px;font-size:12px;cursor:pointer;background:#1f2937;color:#fff;">점검</button></div>' +
+      '<div id="admRadarBox" style="font-size:12px;color:#475569;"></div>' +
+
       // ⚠️ 2026-09 신설(ID101 · IV-12): 그동안 "얼마나 왔는지" 알 방법이 아예 없었다.
       // 유튜브 설명란에 주소를 걸고 14편을 올렸는데 그중 몇 명이 들어왔는지 셀 수가 없었다.
       '<div style="font-weight:700;margin:16px 0 6px;">6. 방문 현황 <span style="font-weight:400;color:#94a3b8;font-size:11.5px;">(최근 7일)</span></div>' +
@@ -4315,6 +4347,68 @@
       ulsan:   { name: '울산', q: '?minX=129.20&maxX=129.45&minY=35.45&maxY=35.65' },
       chungju: { name: '충주', q: '?minX=127.80&maxX=128.05&minY=36.90&maxY=37.05' }
     };
+    // ─────────────────────────────────────────────────────────────
+    // 레이더 겹쳐보기 가능성 점검 (2026-09-09)
+    // ─────────────────────────────────────────────────────────────
+    // 재는 것은 두 가지다.
+    //   ① 커스텀 타일을 얹을 통로가 있는가 (kakao.maps.Tileset / addOverlayMapTypeId)
+    //   ② 이 지도가 웹 메르카토르처럼 움직이는가
+    // ②를 재는 방법: 같은 거리만큼 북쪽·동쪽으로 떨어진 두 점을 화면 픽셀로 바꿔,
+    // 그 비율이 메르카토르 공식이 예측하는 값과 같은지 본다. 같으면 레이더 이미지를
+    // 그대로 얹을 수 있고, 다르면 얹는 순간 위도에 따라 밀린다.
+    var rdBtn = document.getElementById('admRadar');
+    if (rdBtn) rdBtn.addEventListener('click', function() {
+      var box = document.getElementById('admRadarBox');
+      if (!box) return;
+      var lines = [];
+      function done() {
+        box.innerHTML = '<div style="margin-top:6px;padding:10px 12px;background:#f8fafc;border-radius:8px;line-height:1.75;">' +
+          lines.join('<br>') + '</div>';
+      }
+      var hasTileset = !!(window.kakao && kakao.maps && kakao.maps.Tileset);
+      var hasAdd = !!(hasTileset && typeof kakao.maps.Tileset.add === 'function');
+      var hasOverlayId = !!(map && typeof map.addOverlayMapTypeId === 'function');
+      lines.push('① 커스텀 타일 통로');
+      lines.push('&nbsp;&nbsp;kakao.maps.Tileset ' + (hasTileset ? '있음' : '<b style="color:#b91c1c;">없음</b>'));
+      lines.push('&nbsp;&nbsp;Tileset.add ' + (hasAdd ? '있음' : '<b style="color:#b91c1c;">없음</b>'));
+      lines.push('&nbsp;&nbsp;addOverlayMapTypeId ' + (hasOverlayId ? '있음' : '<b style="color:#b91c1c;">없음</b>'));
+      done();
+
+      lines.push('② 지도가 웹 메르카토르처럼 움직이는가');
+      try {
+        var proj = map.getProjection();
+        if (!proj || typeof proj.containerPointFromCoords !== 'function') {
+          lines.push('&nbsp;&nbsp;<b style="color:#b91c1c;">화면 좌표 변환을 쓸 수 없습니다</b>');
+          done();
+          return;
+        }
+        var c = map.getCenter();
+        var lat0 = c.getLat(), lng0 = c.getLng(), d = 0.2;
+        var p0 = proj.containerPointFromCoords(mapLatLng(lat0, lng0));
+        var pN = proj.containerPointFromCoords(mapLatLng(lat0 + d, lng0));
+        var pE = proj.containerPointFromCoords(mapLatLng(lat0, lng0 + d));
+        var dyPix = Math.abs(p0.y - pN.y), dxPix = Math.abs(pE.x - p0.x);
+        function merY(lat) { return Math.log(Math.tan(Math.PI / 4 + (lat * Math.PI / 180) / 2)); }
+        var expect = (merY(lat0 + d) - merY(lat0)) / (d * Math.PI / 180);
+        var actual = dxPix ? (dyPix / dxPix) : 0;
+        var errPct = expect ? Math.abs(actual - expect) / expect * 100 : 999;
+        lines.push('&nbsp;&nbsp;세로/가로 화면비 ' + actual.toFixed(4) + ' · 메르카토르 예측 ' + expect.toFixed(4));
+        lines.push('&nbsp;&nbsp;차이 <b>' + errPct.toFixed(2) + '%</b>');
+        lines.push('&nbsp;&nbsp;(지금 배율 level ' + mapGetLevel() + ' · 중심 ' + lat0.toFixed(3) + ', ' + lng0.toFixed(3) + ')');
+        if (errPct < 1) {
+          lines.push('<b style="color:#0a7d2c;">판정: 메르카토르와 사실상 같습니다. 레이더 이미지를 그대로 얹을 수 있습니다.</b>');
+        } else if (errPct < 5) {
+          lines.push('<b style="color:#b45309;">판정: 조금 어긋납니다. 좁은 지역은 쓸 만하지만 전국 단위에서는 밀려 보입니다.</b>');
+        } else {
+          lines.push('<b style="color:#b91c1c;">판정: 좌표계가 다릅니다. 이미지를 그대로 얹으면 안 됩니다 - 변환이 필요합니다.</b>');
+        }
+      } catch (e) {
+        lines.push('&nbsp;&nbsp;측정 실패: ' + (e && e.message ? e.message : '알 수 없음'));
+      }
+      lines.push('<span style="color:#94a3b8;">배율을 여러 단계로 바꿔가며 두세 번 재보세요. 배율마다 차이가 다르면 그것 자체가 답입니다.</span>');
+      done();
+    });
+
     var dgBtn = document.getElementById('admDiag');
     if (dgBtn) dgBtn.addEventListener('click', function() {
       var box = document.getElementById('admDiagBox');
