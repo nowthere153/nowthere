@@ -450,7 +450,7 @@
        볼 것인가"라는 하나의 질문이고, 컨셉 뷰만 더보기 시트 안에 넣으면 있는 줄도
        모르는 기능이 된다. 담긴 화면이 하나도 없으면 버튼 자체를 감춘다(빈 방 금지). -->
   <button id="conceptBtn" class="txt" title="바다·노을 같은 풍경으로 보기" aria-label="풍경 보기" style="display:none;">풍경</button>
-  <button id="radarBtn" class="txt" title="비구름 겹쳐 보기" aria-label="비구름" style="display:none;">비구름</button>
+  <button id="radarBtn" class="txt" title="비·구름 겹쳐 보기 (비=레이더 · 구름=위성)" aria-label="비구름" style="display:none;">비구름</button>
   <!-- 현위치: 가운데 점을 둘러싼 원에 십자선 - 구글·카카오가 쓰는 표준 형태.
        예전 과녁(🎯) 이모지는 "목표·타겟"으로 읽혀 뜻이 어긋났다(실사용 지적). -->
   <!-- ⚠️ 2026-09-09 되돌림: 하단 "지금 여기"와 겹친다는 이유로 이 버튼을 등록할 때만
@@ -598,7 +598,7 @@
   // 생기면 재사용 가능) index.html에서는 호출하지 않음.
   // 배포된 파일이 최신인지 콘솔에서 한 줄로 확인하기 위한 표시.
   // 같은 이유로 여러 번 헛돌아서(옛 파일이 올라간 줄 모르고 디버깅) 넣어둠.
-  var NOWTHERE_VERSION = 'v2026-09-09n (비구름 안내 문구)';
+  var NOWTHERE_VERSION = 'v2026-09-09o (비구름 안내 문구 · 설명 정정)';
   console.log('[NowThere] ' + NOWTHERE_VERSION);
 
   var CCTV_PROXY_BASE_URL = 'https://api.nowthere.net';
