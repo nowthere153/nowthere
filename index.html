@@ -4041,6 +4041,11 @@
   var RADAR_OPACITY = 0.62;
   var radarMode = 'radar';        // 'radar' 비 · 'satellite' 구름
   var radarOn = false;
+  // ⚠️ 2026-09-10: 색상표를 2번(파랑 계열)으로 박아뒀다. 그 결과 약한 비도 센 비도
+  // 비슷한 파랑으로 보여 "비가 오는가"만 말하고 "얼마나 오는가"는 말하지 못했다.
+  // 기상청 화면이 무지개색인 이유가 그것이다 - 색이 곧 강수 강도다.
+  // 어느 번호가 어떤 색표인지는 눈으로 보고 고르는 것이 확실하므로 관리자가 고른다.
+  var radarColorScheme = 2;
   var radarProvider = '';        // '' 꺼짐 · 'rainviewer' · 'url'
   var radarCustomUrl = '';       // provider='url' 일 때 {z}/{x}/{y} 가 든 주소
   var radarTemplate = '';        // 실제로 쓸 주소(제공자 해석 결과)
@@ -4277,7 +4282,7 @@
           opts = '/0/0_0.png';   // 위성은 색상표 0 · 부가옵션 없음
         } else {
           frames = d && d.radar && d.radar.past;
-          opts = '/2/1_1.png';   // 레이더는 색상표 2 · 부드럽게+눈 표시
+          opts = '/' + radarColorScheme + '/1_1.png';   // 색상표 · 부드럽게+눈 구분
         }
         if (!frames || !frames.length) throw new Error('받을 수 있는 화면이 없습니다');
         var last = frames[frames.length - 1];
@@ -4354,6 +4359,9 @@
     radarCustomUrl = (data && typeof data.radarTileUrl === 'string') ? data.radarTileUrl : '';
     if (data && typeof data.radarMaxZoom === 'number' && data.radarMaxZoom >= 2 && data.radarMaxZoom <= 12) {
       RADAR_MAX_ZOOM = Math.round(data.radarMaxZoom);
+    }
+    if (data && typeof data.radarColorScheme === 'number' && data.radarColorScheme >= 0 && data.radarColorScheme <= 8) {
+      radarColorScheme = Math.round(data.radarColorScheme);
     }
     updateRadarButtonVisibility();
   }
@@ -4646,6 +4654,7 @@
       '<button id="admRadarUrl" style="border:1px solid #cbd5e1;border-radius:6px;padding:7px 12px;font-size:12px;cursor:pointer;background:#fff;color:#475569;">직접 주소 넣기(고급)</button>' +
       '<button id="admRadarZoom" style="border:1px solid #cbd5e1;border-radius:6px;padding:7px 12px;font-size:12px;cursor:pointer;background:#fff;color:#475569;">조각 배율 상한 (지금 z' + RADAR_MAX_ZOOM + ')</button>' +
       '<button id="admRadarPeek" style="border:1px solid #cbd5e1;border-radius:6px;padding:7px 12px;font-size:12px;cursor:pointer;background:#fff;color:#475569;">배율별 조각 확인</button>' +
+      '<button id="admRadarColor" style="border:1px solid #cbd5e1;border-radius:6px;padding:7px 12px;font-size:12px;cursor:pointer;background:#fff;color:#475569;">색상표 고르기 (지금 ' + radarColorScheme + '번)</button>' +
       '<button id="admRadarCheck" style="border:none;border-radius:6px;padding:7px 12px;font-size:12px;cursor:pointer;background:#0a7d2c;color:#fff;">이 자리 실황 대조</button>' +
       '<button id="admRadarGrid" style="border:none;border-radius:6px;padding:7px 12px;font-size:12px;cursor:pointer;background:' +
       (radarDebug ? '#b45309' : '#1f2937') + ';color:#fff;">격자 맞춤 확인 ' + (radarDebug ? '끄기' : '켜기') + '</button>' +
@@ -5027,6 +5036,49 @@
     // 우리에게는 이미 독립된 제3의 자료가 있다 - 기상청 초단기실황. 같은 좌표에
     // 물어보면 "지금 비가 오는가"에 숫자로 답한다. 그림 대 그림이 아니라
     // 숫자 대 그림으로 대조한다.
+    // ⚠️ 어느 번호가 어떤 색인지 문서로 외우게 하지 않는다. 같은 자리를 색상표별로
+    // 늘어놓고 눈으로 고르게 한다(배율 확인과 같은 방식). 지금 강수가 있는 화면에서
+    // 눌러야 색 차이가 보인다는 점만 알려준다.
+    var rcolBtn = document.getElementById('admRadarColor');
+    if (rcolBtn) rcolBtn.addEventListener('click', function() {
+      var box = document.getElementById('admRadarPeekBox');
+      if (!box || !radarConfigured()) return;
+      box.innerHTML = '<p style="font-size:12px;color:#94a3b8;margin:8px 0;">색상표를 불러오는 중…</p>';
+      resolveRadarTemplate(function(ok) {
+        if (!ok) { box.innerHTML = '<p style="font-size:12px;color:#b91c1c;margin:8px 0;">조각 주소를 받지 못했습니다.</p>'; return; }
+        var c = map.getCenter(), zz = radarZoomFor();
+        var tx = Math.floor(lngToTileX(c.getLng(), zz)), ty = Math.floor(latToTileY(c.getLat(), zz));
+        var base = radarTemplate.replace(/\/[0-9]+\/1_1\.png$/, '');
+        var checker = 'background-image:linear-gradient(45deg,#e2e8f0 25%,transparent 25%),linear-gradient(-45deg,#e2e8f0 25%,transparent 25%),linear-gradient(45deg,transparent 75%,#e2e8f0 75%),linear-gradient(-45deg,transparent 75%,#e2e8f0 75%);background-size:12px 12px;background-position:0 0,0 6px,6px -6px,-6px 0;';
+        var rows = '';
+        for (var cs = 0; cs <= 8; cs++) {
+          var u = base.replace('{z}', zz).replace('{x}', tx).replace('{y}', ty) + '/' + cs + '/1_1.png';
+          rows += '<div style="flex:0 0 auto;text-align:center;">' +
+            '<img src="' + escapeAttr(u) + '" alt="" style="width:104px;height:104px;image-rendering:pixelated;' +
+            'border:' + (cs === radarColorScheme ? '3px solid #0a7d2c' : '1px solid #cbd5e1') + ';border-radius:6px;' + checker + '"><br>' +
+            '<button class="rcolPick" data-cs="' + cs + '" style="margin-top:4px;border:none;border-radius:6px;padding:4px 10px;font-size:11.5px;cursor:pointer;background:' +
+            (cs === radarColorScheme ? '#0a7d2c' : '#e2e8f0') + ';color:' + (cs === radarColorScheme ? '#fff' : '#475569') + ';">' + cs + '번</button></div>';
+        }
+        box.innerHTML = '<div style="margin-top:8px;padding:10px 12px;background:#f8fafc;border-radius:8px;">' +
+          '<div style="font-size:11.5px;color:#64748b;margin-bottom:8px;">같은 자리를 색상표별로 받아온 것입니다. ' +
+          '<b>강수가 있는 화면에서 눌러야</b> 색 차이가 보입니다.</div>' +
+          '<div style="display:flex;gap:8px;overflow-x:auto;padding-bottom:6px;">' + rows + '</div>' +
+          '<div style="font-size:11.5px;color:#94a3b8;margin-top:6px;">약한 비와 센 비가 <b>다른 색</b>으로 갈리는 색상표를 고르세요. ' +
+          '기상청 화면처럼 무지개로 갈리는 쪽이 “얼마나 오는가”를 말해줍니다.</div></div>';
+        Array.prototype.forEach.call(box.querySelectorAll('.rcolPick'), function(btn) {
+          btn.addEventListener('click', function() {
+            var cs = parseInt(btn.getAttribute('data-cs'), 10);
+            db.collection('config').doc('settings').set({ radarColorScheme: cs }, { merge: true }).then(function() {
+              radarColorScheme = cs;
+              if (radarOn) setRadar(true);
+              showStatus('✅ 색상표를 ' + cs + '번으로 저장했습니다.');
+              renderAdminConsole();
+            }).catch(function(err) { alert('저장 실패: ' + err.message); });
+          });
+        });
+      });
+    });
+
     var rcBtn = document.getElementById('admRadarCheck');
     if (rcBtn) rcBtn.addEventListener('click', function() {
       var box = document.getElementById('admRadarPeekBox');
