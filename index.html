@@ -3759,7 +3759,13 @@
   var CONCEPT_DEFS = [
     { key: 'sea',    emoji: '🌊', title: '바다 보기', desc: '동해 → 남해 → 서해, 해안선을 따라',   sort: 'sea',        sea: true, best: 'day' },
     { key: 'sunset', emoji: '🌇', title: '노을 보기', desc: '해 지는 순서대로 - 동쪽이 먼저 저뭅니다', sort: 'sunset',              best: 'dusk' },
-    { key: 'night',  emoji: '🌃', title: '밤 풍경',   desc: '북에서 남으로 - 불 켜진 거리',        sort: 'northSouth',          best: 'night' }
+    { key: 'night',  emoji: '🌃', title: '밤 풍경',   desc: '북에서 남으로 - 불 켜진 거리',        sort: 'northSouth',          best: 'night' },
+    // ⚠️ 2026-09-10 신설. 일부 국도 카메라(주로 산간 고갯길·결빙 취약 구간)는 화면에
+    // 기온·습도·노면온도가 함께 찍혀 나온다. 도로기상관측장비가 같이 설치된 지점이다.
+    // 노면온도는 기상청 실황에도 없고 우리 판정 카드에도 없는 값인데, 겨울에 "길이
+    // 얼었나"를 가르는 유일한 숫자다. 그 카메라들만 모아두면 계절이 오면 바로 쓸 수 있다.
+    // 목록에 "이 카메라에 노면온도가 있다"는 표시가 없으므로, 사람이 보고 담는다.
+    { key: 'road',   emoji: '❄️', title: '노면 보기', desc: '화면에 기온·노면온도가 함께 나오는 카메라', sort: 'northSouth',      best: 'any' }
   ];
   // { sea: [{name, lat, lng}], ... } - config/settings.conceptViews 에 저장된다.
   var conceptCams = {};
