@@ -2391,7 +2391,7 @@
   // 스팟 창의 버튼도, 비구름 위의 지도 클릭도 여기로 온다.
   // ⚠️ 사진 유무를 따지지 않는다(imageOnly=false) - 중요한 것은 "가장 가까운 그곳"이지
   // "그림이 잘 나오는 곳"이 아니다.
-  function openNearestCctvAt(lat, lng, titlePrefix, afterMsg, withVerdict) {
+  function openNearestCctvAt(lat, lng, titlePrefix, afterMsg) {
     showStatus('📷 주변 카메라를 찾는 중…');
     findNearestCctv(lat, lng, null, function(item) {
       if (!item) { showStatus('이 근처에는 지금 볼 수 있는 카메라가 없습니다'); return; }
@@ -2407,7 +2407,6 @@
         maxSeconds: item.maxSeconds || 0
       });
       if (afterMsg) setTimeout(function() { showStatus(afterMsg); }, 900);
-      if (withVerdict) injectRadarVerdict(lat, lng);
     }, false);
   }
 
@@ -3003,6 +3002,11 @@
           'padding:9px 12px;border:1px dashed #cbd5e1;border-radius:9px;background:#f8fafc;' +
           'color:#475569;font-size:12.5px;cursor:pointer;">📌 이 화면을 컨셉에 담기</button>' : '');
       openModal('이곳 날씨도 확인', body, weatherIconSvgDataUrl());
+      // ⚠️ 2026-09-10: 비구름이 켜져 있으면 어떤 길로 카메라를 열든 판정 카드를 붙인다.
+      // 지도를 눌러 연 것과 우산 아이콘을 눌러 연 것이 다르게 보이면, 사용자는 같은
+      // 화면인데 어떤 때는 설명이 있고 어떤 때는 없는 이유를 찾느라 헤맨다.
+      // 차이를 설명하기보다 차이를 없애는 편이 낫다.
+      if (radarOn) injectRadarVerdict(lat, lng);
       // 화면이 흐리거나 밤이라 영상만으로는 판단이 어려울 때를 위한 보완 정보
       fillWeatherLine('cctvWeatherLine', lat, lng);
       var img = document.getElementById('cctvSnapshotImg');
@@ -3753,7 +3757,7 @@
   // 시간에 따라 전혀 다른 것이 되므로, 지금 볼 만한 것을 앞에 놓고 아닌 것은 그렇다고
   // 말해준다. 감추지는 않는다 - 밤바다를 보고 싶은 사람도 있다.
   var CONCEPT_DEFS = [
-    { key: 'sea',    emoji: '🌊', title: '바다 보기', desc: '북에서 남으로 - 해안을 따라',        sort: 'northSouth', sea: true, best: 'day' },
+    { key: 'sea',    emoji: '🌊', title: '바다 보기', desc: '동해 → 남해 → 서해, 해안선을 따라',   sort: 'sea',        sea: true, best: 'day' },
     { key: 'sunset', emoji: '🌇', title: '노을 보기', desc: '해 지는 순서대로 - 동쪽이 먼저 저뭅니다', sort: 'sunset',              best: 'dusk' },
     { key: 'night',  emoji: '🌃', title: '밤 풍경',   desc: '북에서 남으로 - 불 켜진 거리',        sort: 'northSouth',          best: 'night' }
   ];
@@ -3990,6 +3994,21 @@
       // 동쪽이 먼저 저문다. 일몰이 이른 순 = 동 → 서.
       cams.forEach(function(c) { c._sun = sunsetMinutesKST(c.lat, c.lng, today); });
       cams.sort(function(a, b) { return (a._sun == null ? 99999 : a._sun) - (b._sun == null ? 99999 : b._sun); });
+    } else if (def.sea) {
+      // ⚠️ 2026-09-10: 북→남 하나로 줄 세우니 동해와 서해가 뒤섞였다. 우리는 바다를
+      // 위도로 기억하지 않고 <b>해역</b>으로 기억한다 - 동해, 남해, 서해. 그래서 먼저
+      // 해역으로 묶고, 해역마다 사람이 실제로 훑는 방향으로 세운다.
+      //   동해 북→남 · 남해 동→서 · 서해 북→남 (해안선을 따라가는 순서)
+      var SEA_ORDER = { '동해': 0, '남해': 1, '서해': 2, '제주': 3, '해안': 4 };
+      cams.forEach(function(c) { c._sea = seaLabelOf(c.lat, c.lng); });
+      cams.sort(function(a, b) {
+        var d = (SEA_ORDER[a._sea] == null ? 9 : SEA_ORDER[a._sea]) -
+                (SEA_ORDER[b._sea] == null ? 9 : SEA_ORDER[b._sea]);
+        if (d !== 0) return d;
+        if (a._sea === '남해') return b.lng - a.lng;   // 동 → 서
+        if (a._sea === '제주') return a.lng - b.lng;   // 서 → 동
+        return b.lat - a.lat;                          // 동해·서해는 북 → 남
+      });
     } else if (def.sort === 'northSouth') {
       // 북에서 남으로. 지도를 위에서 아래로 훑는 것과 같은 순서라 눈이 편하다.
       cams.sort(function(a, b) { return b.lat - a.lat; });
@@ -4116,6 +4135,16 @@
   // 우리가 지금까지 받아온 것은 레이더다. 실사용에서 "기상청 레이더에도 구름이 거의
   // 없는데 위성에는 구름대가 있다"는 확인이 왔고, 그 둘이 다른 자료라는 것이 바로
   // 이 차이다. 둘 다 쓸모가 있으므로 골라 볼 수 있게 한다.
+  // ⚠️ 2026-09-10: 색표 자체는 제공처가 정한다. 우리가 정할 수 있는 것은 <b>진하기</b>다.
+  // 기상청 화면과 견줘 옅어 보인다는 지적 - 약한 비(1mm 이하)는 어떤 색표에서도 파랑이라
+  // 색은 바꿀 수 없지만, 진하기와 채도를 올리면 같은 색이 훨씬 또렷해진다.
+  // 다만 과하게 올리면 약한 비가 센 비처럼 보이므로 세 단계로만 둔다.
+  var RADAR_LOOK_PRESETS = [
+    { name: '옅게',  opacity: 0.55, filter: 'none' },
+    { name: '보통',  opacity: 0.78, filter: 'saturate(1.35) contrast(1.06)' },
+    { name: '진하게', opacity: 0.92, filter: 'saturate(1.7) contrast(1.14)' }
+  ];
+  var radarLook = 1;
   var RADAR_OPACITY = 0.62;
   var radarMode = 'radar';        // 'radar' 비 · 'satellite' 구름
   var radarOn = false;
@@ -4215,6 +4244,8 @@
   function drawRadar() {
     var layer = document.getElementById('radarLayer');
     if (!layer) return;
+    // 채도·대비는 층 전체에 한 번만 건다(조각마다 걸면 이음새에서 색이 튄다).
+    layer.style.filter = RADAR_LOOK_PRESETS[radarLook].filter;
     if (!radarOn || !radarTemplate) { layer.innerHTML = ''; return; }
     if (radarTooWide()) { layer.innerHTML = ''; radarTileTotal = radarTileOk = radarTileFail = 0; return; }
     radarTileTotal = radarTileOk = radarTileFail = 0;
@@ -4252,7 +4283,8 @@
           // 각 조각을 0.6픽셀만큼 크게 그려 옆 조각과 살짝 겹치게 하면 틈이 사라진다.
           // 자료가 밀리는 것이 아니라 그림이 서로 맞물리게만 하는 것이라 위치는 그대로다.
           'transform-origin:0 0;transform:translate(' + nw.x + 'px,' + nw.y + 'px) scale(' +
-          ((tw + 0.6) / 256) + ',' + ((th + 0.6) / 256) + ');opacity:' + RADAR_OPACITY + ';';
+          ((tw + 0.6) / 256) + ',' + ((th + 0.6) / 256) + ');opacity:' +
+          RADAR_LOOK_PRESETS[radarLook].opacity + ';';
         // ⚠️ 조각이 왔는지 세어 둔다. 비가 안 오면 조각은 "투명한 그림"이라 화면에는
         // 아무것도 안 보이는데, 그것과 "조각을 못 받아온 것"이 눈으로는 구분되지 않는다.
         // 숫자가 있어야 어느 쪽인지 말할 수 있다.
@@ -4419,6 +4451,13 @@
         showStatus(radarMode === 'satellite'
           ? '☁️ 지도를 누르면 그 자리의 하늘을 카메라로 볼 수 있어요'
           : '🌧️ 지도를 누르면 그 자리의 지금을 카메라와 관측으로 함께 보여드려요');
+        // CCTV 마커까지 켜면 "비구름 속의 카메라"를 직접 고를 수 있다. 그 조합을 모르면
+        // 반쪽만 쓰게 되므로, 꺼져 있을 때 한 번만 권한다.
+        if (!cctvVisible && (CCTV_ENABLED || isAdmin)) {
+          setTimeout(function() {
+            if (radarOn && !cctvVisible) showStatus('💡 CCTV도 함께 켜면 비구름 속 카메라를 직접 고를 수 있어요');
+          }, 3200);
+        }
       }, 700);
       // 레이더는 5~10분마다 새 화면이 나온다. 그보다 자주 부를 이유가 없다.
       if (radarRefreshTimer) clearInterval(radarRefreshTimer);
@@ -4448,6 +4487,9 @@
     }
     if (data && typeof data.radarColorScheme === 'number' && data.radarColorScheme >= 0 && data.radarColorScheme <= 8) {
       radarColorScheme = Math.round(data.radarColorScheme);
+    }
+    if (data && typeof data.radarLook === 'number' && data.radarLook >= 0 && data.radarLook <= 2) {
+      radarLook = Math.round(data.radarLook);
     }
     updateRadarButtonVisibility();
   }
@@ -4740,6 +4782,7 @@
       '<button id="admRadarUrl" style="border:1px solid #cbd5e1;border-radius:6px;padding:7px 12px;font-size:12px;cursor:pointer;background:#fff;color:#475569;">직접 주소 넣기(고급)</button>' +
       '<button id="admRadarZoom" style="border:1px solid #cbd5e1;border-radius:6px;padding:7px 12px;font-size:12px;cursor:pointer;background:#fff;color:#475569;">조각 배율 상한 (지금 z' + RADAR_MAX_ZOOM + ')</button>' +
       '<button id="admRadarPeek" style="border:1px solid #cbd5e1;border-radius:6px;padding:7px 12px;font-size:12px;cursor:pointer;background:#fff;color:#475569;">배율별 조각 확인</button>' +
+      '<button id="admRadarLook" style="border:1px solid #cbd5e1;border-radius:6px;padding:7px 12px;font-size:12px;cursor:pointer;background:#fff;color:#475569;">진하기 (지금 ' + RADAR_LOOK_PRESETS[radarLook].name + ')</button>' +
       '<button id="admRadarColor" style="border:1px solid #cbd5e1;border-radius:6px;padding:7px 12px;font-size:12px;cursor:pointer;background:#fff;color:#475569;">색상표 고르기 (지금 ' + radarColorScheme + '번)</button>' +
       '<button id="admRadarCheck" style="border:none;border-radius:6px;padding:7px 12px;font-size:12px;cursor:pointer;background:#0a7d2c;color:#fff;">이 자리 실황 대조</button>' +
       '<button id="admRadarGrid" style="border:none;border-radius:6px;padding:7px 12px;font-size:12px;cursor:pointer;background:' +
@@ -5125,6 +5168,17 @@
     // ⚠️ 어느 번호가 어떤 색인지 문서로 외우게 하지 않는다. 같은 자리를 색상표별로
     // 늘어놓고 눈으로 고르게 한다(배율 확인과 같은 방식). 지금 강수가 있는 화면에서
     // 눌러야 색 차이가 보인다는 점만 알려준다.
+    var rlkBtn = document.getElementById('admRadarLook');
+    if (rlkBtn) rlkBtn.addEventListener('click', function() {
+      var next = (radarLook + 1) % RADAR_LOOK_PRESETS.length;
+      db.collection('config').doc('settings').set({ radarLook: next }, { merge: true }).then(function() {
+        radarLook = next;
+        if (radarOn) drawRadar();
+        showStatus('✅ 진하기를 “' + RADAR_LOOK_PRESETS[next].name + '”으로 바꿨습니다.');
+        renderAdminConsole();
+      }).catch(function(err) { alert('저장 실패: ' + err.message); });
+    });
+
     var rcolBtn = document.getElementById('admRadarColor');
     if (rcolBtn) rcolBtn.addEventListener('click', function() {
       var box = document.getElementById('admRadarPeekBox');
@@ -5437,7 +5491,7 @@
     // 네이버·카카오는 CCTV를 교통으로만 써서 안 하는 일이다. 둘 다 가진 곳은 우리뿐인데
     // 지금까지는 같은 화면에 놓기만 하고 잇지는 않았다.
     if (!placingMode && radarOn) {
-      openNearestCctvAt(pos.lat, pos.lng, '이 자리의 지금', null, true);
+      openNearestCctvAt(pos.lat, pos.lng, '이 자리의 지금', null);
       return;
     }
     if (!placingMode) return;
