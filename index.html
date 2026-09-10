@@ -4639,6 +4639,7 @@
       '<button id="admRadarUrl" style="border:1px solid #cbd5e1;border-radius:6px;padding:7px 12px;font-size:12px;cursor:pointer;background:#fff;color:#475569;">직접 주소 넣기(고급)</button>' +
       '<button id="admRadarZoom" style="border:1px solid #cbd5e1;border-radius:6px;padding:7px 12px;font-size:12px;cursor:pointer;background:#fff;color:#475569;">조각 배율 상한 (지금 z' + RADAR_MAX_ZOOM + ')</button>' +
       '<button id="admRadarPeek" style="border:1px solid #cbd5e1;border-radius:6px;padding:7px 12px;font-size:12px;cursor:pointer;background:#fff;color:#475569;">배율별 조각 확인</button>' +
+      '<button id="admRadarCheck" style="border:none;border-radius:6px;padding:7px 12px;font-size:12px;cursor:pointer;background:#0a7d2c;color:#fff;">이 자리 실황 대조</button>' +
       '<button id="admRadarGrid" style="border:none;border-radius:6px;padding:7px 12px;font-size:12px;cursor:pointer;background:' +
       (radarDebug ? '#b45309' : '#1f2937') + ';color:#fff;">격자 맞춤 확인 ' + (radarDebug ? '끄기' : '켜기') + '</button>' +
       '</div>' +
@@ -5012,6 +5013,46 @@
     // "조각을 못 받아온 것"은 눈으로 구분되지 않는다. 그래서 조각 한 장을 바둑판
     // 무늬 위에 띄워 본다 - 무늬만 보이면 비가 없는 것이고, 아무것도 안 뜨면 못 받은
     // 것이며, 글자가 보이면 그 배율의 조각이 없는 것이다. 셋이 눈으로 갈린다.
+    // ⚠️ 2026-09-10: "비구름은 색이 칠해져 있는데 그 자리 CCTV에는 비가 안 온다"는
+    // 관찰이 왔다. 그런데 CCTV 그림은 판정 근거로 약하다 - 이슬비는 카메라에 거의
+    // 안 잡히고, 밤이면 더 안 보인다. 눈으로 본 것을 근거로 자료를 폐기하면 나중에
+    // 뒤집힌다(CCTV 때 겪은 그 순서다).
+    // 우리에게는 이미 독립된 제3의 자료가 있다 - 기상청 초단기실황. 같은 좌표에
+    // 물어보면 "지금 비가 오는가"에 숫자로 답한다. 그림 대 그림이 아니라
+    // 숫자 대 그림으로 대조한다.
+    var rcBtn = document.getElementById('admRadarCheck');
+    if (rcBtn) rcBtn.addEventListener('click', function() {
+      var box = document.getElementById('admRadarPeekBox');
+      if (!box || !CCTV_PROXY_BASE_URL) return;
+      var c = map.getCenter();
+      var lat = c.getLat(), lng = c.getLng();
+      box.innerHTML = '<p style="font-size:12px;color:#94a3b8;margin:8px 0;">지도 한가운데(' +
+        lat.toFixed(4) + ', ' + lng.toFixed(4) + ')의 기상청 실황을 확인하는 중…</p>';
+      fetch(CCTV_PROXY_BASE_URL + '/api/weather-now?lat=' + encodeURIComponent(lat) + '&lng=' + encodeURIComponent(lng))
+        .then(function(r) { if (!r.ok) throw new Error('HTTP ' + r.status); return r.json(); })
+        .then(function(w) {
+          var verdict = w.raining
+            ? '<b style="color:#1d4ed8;">비가 옵니다</b>' + (w.ptyLabel ? ' (' + escapeHtml(w.ptyLabel) + ')' : '')
+            : '<b style="color:#475569;">비가 오지 않습니다</b>';
+          box.innerHTML =
+            '<div style="margin-top:8px;padding:10px 12px;background:#f8fafc;border-radius:8px;font-size:12px;line-height:1.8;">' +
+            '<div style="font-size:11.5px;color:#64748b;">지도 한가운데 ' + lat.toFixed(4) + ', ' + lng.toFixed(4) + '</div>' +
+            '<div style="margin-top:4px;">기상청 실황 — ' + verdict + '</div>' +
+            (w.rain1h ? '<div>1시간 강수량 ' + w.rain1h + 'mm</div>' : '') +
+            (w.temp != null ? '<div>기온 ' + w.temp + '℃</div>' : '') +
+            '<div style="margin-top:8px;padding-top:8px;border-top:1px solid #e2e8f0;color:#475569;">' +
+            '<b>판정하는 법</b><br>' +
+            '지금 이 자리에 <b>비구름이 색으로 칠해져 있는데</b> 위가 “비가 오지 않습니다”이면 → 겹쳐진 자료가 어긋난 것입니다.<br>' +
+            '색이 없는데 “비가 옵니다”이면 → 비구름이 실제보다 <b>다른 자리에</b> 그려져 있는 것입니다.<br>' +
+            '둘이 맞으면 → 겹쳐보기는 정상입니다. CCTV에 비가 안 보이는 것은 이슬비이거나 카메라가 못 잡는 것입니다.' +
+            '</div></div>';
+        })
+        .catch(function(e) {
+          box.innerHTML = '<p style="font-size:12px;color:#b91c1c;margin:8px 0;">실황을 불러오지 못했습니다: ' +
+            escapeHtml(e && e.message ? e.message : '알 수 없음') + '</p>';
+        });
+    });
+
     var rgBtn = document.getElementById('admRadarGrid');
     if (rgBtn) rgBtn.addEventListener('click', function() {
       radarDebug = !radarDebug;
