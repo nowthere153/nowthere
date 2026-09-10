@@ -2391,7 +2391,7 @@
   // 스팟 창의 버튼도, 비구름 위의 지도 클릭도 여기로 온다.
   // ⚠️ 사진 유무를 따지지 않는다(imageOnly=false) - 중요한 것은 "가장 가까운 그곳"이지
   // "그림이 잘 나오는 곳"이 아니다.
-  function openNearestCctvAt(lat, lng, titlePrefix, afterMsg) {
+  function openNearestCctvAt(lat, lng, titlePrefix, afterMsg, withVerdict) {
     showStatus('📷 주변 카메라를 찾는 중…');
     findNearestCctv(lat, lng, null, function(item) {
       if (!item) { showStatus('이 근처에는 지금 볼 수 있는 카메라가 없습니다'); return; }
@@ -2407,7 +2407,60 @@
         maxSeconds: item.maxSeconds || 0
       });
       if (afterMsg) setTimeout(function() { showStatus(afterMsg); }, 900);
+      if (withVerdict) injectRadarVerdict(lat, lng);
     }, false);
+  }
+
+  // ---------------------------------------------------------------------------
+  // 판정 카드 (2026-09-10)
+  // ---------------------------------------------------------------------------
+  // 레이더 옆에 카메라를 붙이면 사용자는 둘을 재판에 부친다. 그런데 이 재판은
+  // 공정하지 않다 - 카메라는 눈으로 보는 강한 증거이고 레이더는 추상적인 색이라,
+  // 맞붙이면 늘 카메라가 이긴다. 게다가 카메라는 "비가 온다"는 증명할 수 있어도
+  // "비가 안 온다"는 증명하지 못한다. 이슬비는 안 잡히고 밤에는 더 안 잡힌다.
+  // 그래서 둘만 놓으면 "레이더가 가짜"라는 틀린 결론이 구조적으로 나온다.
+  //
+  // 해법은 심판을 하나 더 부르는 것이다. 우리에게는 이미 기상청 실황이 있다.
+  // 둘이면 싸움이고 셋이면 판단이다. 그리고 모순을 사용자에게 떠넘기지 않고
+  // 우리가 한 문장으로 결론을 낸다 - 기상청은 자료를 주고 해석은 주지 않는다.
+  // 해석까지 주는 것이 우리가 더 할 수 있는 일이다.
+  function injectRadarVerdict(lat, lng) {
+    var body = document.getElementById('modalBody');
+    if (!body || !CCTV_PROXY_BASE_URL) return;
+    var holder = document.createElement('div');
+    holder.id = 'radarVerdict';
+    holder.style.cssText = 'margin:0 0 10px;padding:10px 12px;border-radius:9px;' +
+      'background:#f1f5f9;color:#475569;font-size:12.5px;line-height:1.65;';
+    holder.textContent = '레이더와 실제를 맞춰보는 중…';
+    body.insertBefore(holder, body.firstChild);
+    fetch(CCTV_PROXY_BASE_URL + '/api/weather-now?lat=' + encodeURIComponent(lat) + '&lng=' + encodeURIComponent(lng))
+      .then(function(r) { if (!r.ok) throw new Error('HTTP ' + r.status); return r.json(); })
+      .then(function(w) {
+        if (!holder.isConnected) return;
+        var head, sub, tone;
+        if (w.raining) {
+          tone = '#1d4ed8';
+          head = '🌧️ 지금 여기 비가 옵니다';
+          sub = '레이더도, 기상청 관측도 비를 말합니다.' +
+                (w.rain1h ? ' 시간당 ' + w.rain1h + 'mm.' : '') +
+                ' 카메라 화면에 잘 안 보이더라도 실제로 내리고 있습니다.';
+        } else {
+          tone = '#475569';
+          head = '🌤️ 하늘엔 있지만, 땅까지는 오지 않고 있어요';
+          sub = '레이더는 <b>하늘 중간 높이</b>를 봅니다. 거기 물방울이 있어도 ' +
+                '땅에 닿기 전에 마르는 일이 흔합니다. 기상청 관측으로도 지금 이 자리는 ' +
+                '강수가 없습니다 — <b>레이더가 틀린 것이 아니라 서로 다른 높이를 보고 있는 것</b>입니다.';
+        }
+        holder.innerHTML = '<div style="font-weight:800;color:' + tone + ';margin-bottom:3px;">' + head + '</div>' +
+          '<div>' + sub + '</div>' +
+          '<div style="margin-top:6px;font-size:11.5px;color:#94a3b8;">레이더(하늘) · 기상청 관측(땅) · 카메라(눈) 세 가지를 맞춰본 결과입니다.</div>';
+        holder.style.background = w.raining ? '#eff6ff' : '#f8fafc';
+      })
+      .catch(function() {
+        if (!holder.isConnected) return;
+        holder.innerHTML = '<div>레이더는 <b>하늘 중간 높이</b>를 봅니다. 카메라에 비가 안 보여도 ' +
+          '틀린 것이 아니라, 땅에 닿기 전에 마르고 있는 경우가 많습니다.</div>';
+      });
   }
 
   function applyPlacingAt(pos) {
@@ -4364,8 +4417,8 @@
         // 새로 생긴 사용법을 먼저 알린다. 옅은 파랑에 대한 설명은 실제로 눌렀을 때
         // 그 자리에서 해준다(맥락이 있는 자리에서 말해야 남는다).
         showStatus(radarMode === 'satellite'
-          ? '☁️ 구름이 있는 곳만 하얗게 나타납니다 · 지도를 누르면 그 자리 CCTV가 열려요'
-          : '🌧️ 지도를 누르면 그 자리 CCTV가 열려요 · 실제 하늘을 확인해보세요');
+          ? '☁️ 지도를 누르면 그 자리의 하늘을 카메라로 볼 수 있어요'
+          : '🌧️ 지도를 누르면 그 자리의 지금을 카메라와 관측으로 함께 보여드려요');
       }, 700);
       // 레이더는 5~10분마다 새 화면이 나온다. 그보다 자주 부를 이유가 없다.
       if (radarRefreshTimer) clearInterval(radarRefreshTimer);
@@ -5384,8 +5437,7 @@
     // 네이버·카카오는 CCTV를 교통으로만 써서 안 하는 일이다. 둘 다 가진 곳은 우리뿐인데
     // 지금까지는 같은 화면에 놓기만 하고 잇지는 않았다.
     if (!placingMode && radarOn) {
-      openNearestCctvAt(pos.lat, pos.lng, '레이더가 표시한 자리',
-        '약한 비는 카메라 화면에 안 보일 수 있어요 · 하늘의 구름은 보입니다');
+      openNearestCctvAt(pos.lat, pos.lng, '이 자리의 지금', null, true);
       return;
     }
     if (!placingMode) return;
