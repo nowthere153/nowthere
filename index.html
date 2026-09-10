@@ -1756,6 +1756,8 @@
     if (nowBtn) nowBtn.addEventListener('click', function() {
       nowBtn.disabled = true;
       nowBtn.textContent = '📷 주변 카메라를 찾는 중…';
+      // (아래 처리는 openNearestCctvAt과 같은 일을 하지만, 되돌아가기 연결 때문에
+      //  이 자리에 남겨둔다 - 스팟에서 넘어온 경우에는 스팟으로 돌아가야 한다)
       // 사진 유무를 따지지 않는다(imageOnly=false). 여기서 중요한 것은 "가장 가까운
       // 그곳"이지 "그림이 잘 나오는 곳"이 아니다. 사진이 없으면 실시간으로 열린다.
       findNearestCctv(spot.lat, spot.lng, null, function(item) {
@@ -2385,6 +2387,29 @@
   // 바로 등록 위치로 잡는다 - 안내 문구로 역할이 바뀐 것을 알린다.
   // 지도 클릭과 "이 자리로" 버튼이 같은 일을 하도록 한 곳에 모은다.
   // (예전에는 지도 클릭 안에만 있어서 다른 경로를 만들 수 없었다)
+  // 어떤 좌표든 "그 자리에서 가장 가까운 CCTV"를 여는 하나의 통로.
+  // 스팟 창의 버튼도, 비구름 위의 지도 클릭도 여기로 온다.
+  // ⚠️ 사진 유무를 따지지 않는다(imageOnly=false) - 중요한 것은 "가장 가까운 그곳"이지
+  // "그림이 잘 나오는 곳"이 아니다.
+  function openNearestCctvAt(lat, lng, titlePrefix, afterMsg) {
+    showStatus('📷 주변 카메라를 찾는 중…');
+    findNearestCctv(lat, lng, null, function(item) {
+      if (!item) { showStatus('이 근처에는 지금 볼 수 있는 카메라가 없습니다'); return; }
+      var ilat = parseFloat(item.coordy), ilng = parseFloat(item.coordx);
+      var km = approxKmDistance(lat, lng, ilat, ilng);
+      openCctvPopup({
+        name: (titlePrefix ? titlePrefix + ' · ' : '') + (item.cctvname || '가까운 카메라') +
+              ' (' + formatKmLabel(km) + ' 떨어짐)',
+        lat: ilat, lng: ilng,
+        imageUrl: item.imageUrl || '', streamUrl: item.cctvurl || '',
+        mp4Url: item.mp4Url || '', liveFirst: !!item.liveFirst, relayLive: !!item.relayLive,
+        ggResolve: !!item.ggResolve, streamResolve: item.streamResolve || '',
+        maxSeconds: item.maxSeconds || 0
+      });
+      if (afterMsg) setTimeout(function() { showStatus(afterMsg); }, 900);
+    }, false);
+  }
+
   function applyPlacingAt(pos) {
     if (pendingRelocate) {
       var targetId = pendingRelocate;
@@ -4099,7 +4124,13 @@
   // "이 지도는 웹 메르카토르와 같다"는 가정의 오차도 함께 커진다(level 6에서 0.59%).
   // 어긋난 비구름은 없는 것만 못하므로, 확인된 범위를 벗어나면 그리지 않고 그 사실을
   // 알린다. 감추면서 왜 감췄는지 말하지 않으면 고장으로 읽힌다.
-  var RADAR_MAX_MAP_LEVEL = 11;
+  // ⚠️ 2026-09-10 상향(11 → 13). 처음에 11로 좁힌 것은 "넓게 보면 좌표가 어긋날지
+  // 모른다"는 걱정 때문이었는데, 그 사이 격자 맞춤 확인으로 우리 계산이 맞다는 것이
+  // 실측으로 확인됐다. 확인되지 않은 걱정 때문에 실제 쓰임을 막고 있었다.
+  // 그리고 이 기능의 주된 쓰임이 바로 그 넓은 화면이다 - "전국에 지금 어떤 비구름대가
+  // 있나"를 먼저 보고, 궁금한 곳으로 들어가고, 거기 CCTV로 확인하는 순서. 그 첫걸음을
+  // 막아두고 있었던 셈이다. 13은 지도가 허용하는 가장 넓은 배율(전국 한 화면)이다.
+  var RADAR_MAX_MAP_LEVEL = 13;
   function radarTooWide() { return mapGetLevel() > RADAR_MAX_MAP_LEVEL; }
 
   // ⚠️ 2026-09-10: 확대하면 아무것도 안 보이던 문제.
@@ -4330,9 +4361,11 @@
         // ⚠️ 옅은 파랑은 가장 약한 신호다. 공중에서는 잡히는데 땅에 닿기 전에 마르는
         // 경우가 흔해, 그 자리 CCTV에는 비가 안 보이는 것이 정상이다. 이 사실을
         // 말해두지 않으면 사용자는 화면이 틀렸다고 읽는다.
+        // 새로 생긴 사용법을 먼저 알린다. 옅은 파랑에 대한 설명은 실제로 눌렀을 때
+        // 그 자리에서 해준다(맥락이 있는 자리에서 말해야 남는다).
         showStatus(radarMode === 'satellite'
-          ? '☁️ 구름이 있는 곳만 하얗게 나타납니다'
-          : '🌧️ 옅은 파랑은 아주 약한 비예요 · 땅까지 닿지 않기도 합니다');
+          ? '☁️ 구름이 있는 곳만 하얗게 나타납니다 · 지도를 누르면 그 자리 CCTV가 열려요'
+          : '🌧️ 지도를 누르면 그 자리 CCTV가 열려요 · 실제 하늘을 확인해보세요');
       }, 700);
       // 레이더는 5~10분마다 새 화면이 나온다. 그보다 자주 부를 이유가 없다.
       if (radarRefreshTimer) clearInterval(radarRefreshTimer);
@@ -5345,6 +5378,16 @@
   mapOnClick(function(pos) {
     if (longPressTimer) { clearTimeout(longPressTimer); longPressTimer = null; } // 짧게 뗀 경우 롱프레스 타이머 취소
     if (suppressNextMapClick) { suppressNextMapClick = false; return; } // 롱프레스로 이미 처리된 클릭은 무시(ID 67)
+    // ⚠️ 2026-09-10 신설: 비구름이 켜져 있는 동안에는 지도를 누르면 그 자리의 CCTV가
+    // 열린다. 레이더는 상공을 보고 카메라는 지상을 본다 - 둘을 이어붙이면 "저기 정말
+    // 비 오나"를 그 자리에서 확인할 수 있다. 기상청에는 카메라가 없어 못 하는 일이고,
+    // 네이버·카카오는 CCTV를 교통으로만 써서 안 하는 일이다. 둘 다 가진 곳은 우리뿐인데
+    // 지금까지는 같은 화면에 놓기만 하고 잇지는 않았다.
+    if (!placingMode && radarOn) {
+      openNearestCctvAt(pos.lat, pos.lng, '레이더가 표시한 자리',
+        '약한 비는 카메라 화면에 안 보일 수 있어요 · 하늘의 구름은 보입니다');
+      return;
+    }
     if (!placingMode) return;
     applyPlacingAt(pos);
   });
