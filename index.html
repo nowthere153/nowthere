@@ -5046,8 +5046,14 @@
       box.innerHTML = '<p style="font-size:12px;color:#94a3b8;margin:8px 0;">색상표를 불러오는 중…</p>';
       resolveRadarTemplate(function(ok) {
         if (!ok) { box.innerHTML = '<p style="font-size:12px;color:#b91c1c;margin:8px 0;">조각 주소를 받지 못했습니다.</p>'; return; }
-        var c = map.getCenter(), zz = radarZoomFor();
+        // ⚠️ 2026-09-10: 아홉 장이 다 똑같아 보인다는 지적. 지금 화면에 강수가 없으면
+        // 아홉 장 모두 투명해서 당연히 같아 보인다 - 색상표는 "비가 있는 자리"에만
+        // 색을 칠하기 때문이다. 그래서 표본을 넓게 잡는다. z5 한 장이면 한반도 상당
+        // 부분이 들어가므로, 어딘가에 비가 있으면 그것이 잡힌다.
+        var c = map.getCenter(), zz = 5;
         var tx = Math.floor(lngToTileX(c.getLng(), zz)), ty = Math.floor(latToTileY(c.getLat(), zz));
+        var CS_NAMES = ['0 흑백(dBZ)', '1 오리지널', '2 유니버설 블루', '3 TITAN',
+                        '4 웨더채널', '5 Meteored', '6 NEXRAD', '7 레인보우', '8 다크스카이'];
         var base = radarTemplate.replace(/\/[0-9]+\/1_1\.png$/, '');
         var checker = 'background-image:linear-gradient(45deg,#e2e8f0 25%,transparent 25%),linear-gradient(-45deg,#e2e8f0 25%,transparent 25%),linear-gradient(45deg,transparent 75%,#e2e8f0 75%),linear-gradient(-45deg,transparent 75%,#e2e8f0 75%);background-size:12px 12px;background-position:0 0,0 6px,6px -6px,-6px 0;';
         var rows = '';
@@ -5056,12 +5062,15 @@
           rows += '<div style="flex:0 0 auto;text-align:center;">' +
             '<img src="' + escapeAttr(u) + '" alt="" style="width:104px;height:104px;image-rendering:pixelated;' +
             'border:' + (cs === radarColorScheme ? '3px solid #0a7d2c' : '1px solid #cbd5e1') + ';border-radius:6px;' + checker + '"><br>' +
-            '<button class="rcolPick" data-cs="' + cs + '" style="margin-top:4px;border:none;border-radius:6px;padding:4px 10px;font-size:11.5px;cursor:pointer;background:' +
-            (cs === radarColorScheme ? '#0a7d2c' : '#e2e8f0') + ';color:' + (cs === radarColorScheme ? '#fff' : '#475569') + ';">' + cs + '번</button></div>';
+            '<div style="font-size:10.5px;color:#64748b;margin-top:3px;width:104px;">' + escapeHtml(CS_NAMES[cs]) + '</div>' +
+            '<button class="rcolPick" data-cs="' + cs + '" style="margin-top:3px;border:none;border-radius:6px;padding:4px 10px;font-size:11.5px;cursor:pointer;background:' +
+            (cs === radarColorScheme ? '#0a7d2c' : '#e2e8f0') + ';color:' + (cs === radarColorScheme ? '#fff' : '#475569') + ';">고르기</button></div>';
         }
         box.innerHTML = '<div style="margin-top:8px;padding:10px 12px;background:#f8fafc;border-radius:8px;">' +
-          '<div style="font-size:11.5px;color:#64748b;margin-bottom:8px;">같은 자리를 색상표별로 받아온 것입니다. ' +
-          '<b>강수가 있는 화면에서 눌러야</b> 색 차이가 보입니다.</div>' +
+          '<div style="font-size:11.5px;color:#64748b;margin-bottom:8px;line-height:1.7;">' +
+          '지금 지도 자리를 중심으로 <b>넓게(z5)</b> 잡은 표본입니다. 색상표는 <b>비가 있는 자리에만</b> 색을 칠하므로, ' +
+          '전국 어디에도 비가 없으면 아홉 장이 모두 투명해 <b>똑같아 보이는 것이 정상</b>입니다.<br>' +
+          '그럴 때는 비 오는 날 다시 열어보시거나, 비가 오는 지역으로 지도를 옮긴 뒤 눌러주세요.</div>' +
           '<div style="display:flex;gap:8px;overflow-x:auto;padding-bottom:6px;">' + rows + '</div>' +
           '<div style="font-size:11.5px;color:#94a3b8;margin-top:6px;">약한 비와 센 비가 <b>다른 색</b>으로 갈리는 색상표를 고르세요. ' +
           '기상청 화면처럼 무지개로 갈리는 쪽이 “얼마나 오는가”를 말해줍니다.</div></div>';
