@@ -612,7 +612,7 @@
   // 생기면 재사용 가능) index.html에서는 호출하지 않음.
   // 배포된 파일이 최신인지 콘솔에서 한 줄로 확인하기 위한 표시.
   // 같은 이유로 여러 번 헛돌아서(옛 파일이 올라간 줄 모르고 디버깅) 넣어둠.
-  var NOWTHERE_VERSION = 'v2026-09-10a (비구름 확대 한계 · 재그리기 신호 보강 · 배율별 확인)';
+  var NOWTHERE_VERSION = 'v2026-09-10b (격자 맞춤 확인)';
   console.log('[NowThere] ' + NOWTHERE_VERSION);
 
   var CCTV_PROXY_BASE_URL = 'https://api.nowthere.net';
@@ -4106,6 +4106,20 @@
   var RADAR_MAX_TILE_PX = 6000;
   var radarTooClose = false;
 
+  // ⚠️ 2026-09-10: 강수 덩어리가 실제보다 남쪽으로 밀려 보인다는 지적(춘천 → 원주).
+  // 원인은 둘 중 하나다.
+  //   ① 우리가 조각을 엉뚱한 자리에 놓고 있다 (우리 계산 문제)
+  //   ② 조각은 제자리인데 그 안의 그림이 밀려 있다 (제공처 자료 문제)
+  // 눈으로는 구분이 안 되므로 재는 도구를 만든다. 같은 조각의 경계를 두 가지 방법으로
+  // 그린다 - 하나는 우리 계산(노란 테두리), 하나는 지도 자신의 그리기(빨간 사각형).
+  // 둘이 포개지면 우리 계산은 맞는 것이고, 어긋나면 우리 문제다.
+  var radarDebug = false;
+  var radarDebugShapes = [];
+  function clearRadarDebugShapes() {
+    radarDebugShapes.forEach(function(r) { try { r.setMap(null); } catch (e) {} });
+    radarDebugShapes = [];
+  }
+
   function drawRadar() {
     var layer = document.getElementById('radarLayer');
     if (!layer) return;
@@ -4113,6 +4127,7 @@
     if (radarTooWide()) { layer.innerHTML = ''; radarTileTotal = radarTileOk = radarTileFail = 0; return; }
     radarTileTotal = radarTileOk = radarTileFail = 0;
     radarTooClose = false;
+    clearRadarDebugShapes();
     var proj = map.getProjection();
     if (!proj || typeof proj.containerPointFromCoords !== 'function') return;
     var b = mapGetBounds();
@@ -4144,6 +4159,28 @@
         // 아무것도 안 보이는데, 그것과 "조각을 못 받아온 것"이 눈으로는 구분되지 않는다.
         // 숫자가 있어야 어느 쪽인지 말할 수 있다.
         radarTileTotal++;
+        if (radarDebug) {
+          img.style.border = '2px solid #facc15';
+          img.style.boxSizing = 'border-box';
+          var tag = document.createElement('div');
+          tag.textContent = 'z' + z + ' x' + xx + ' y' + y;
+          tag.style.cssText = 'position:absolute;left:' + (Math.round(nw.x) + 4) + 'px;top:' +
+            (Math.round(nw.y) + 4) + 'px;background:#facc15;color:#111827;font-size:11px;' +
+            'font-weight:700;padding:2px 5px;border-radius:4px;z-index:2;';
+          frag.appendChild(tag);
+          // 같은 경계를 지도 자신에게 그리게 한다. 우리 테두리와 포개져야 정상이다.
+          try {
+            var rect = new kakao.maps.Rectangle({
+              bounds: new kakao.maps.LatLngBounds(
+                mapLatLng(tileYToLat(y + 1, z), tileXToLng(x, z)),
+                mapLatLng(tileYToLat(y, z), tileXToLng(x + 1, z))),
+              strokeWeight: 2, strokeColor: '#dc2626', strokeOpacity: 0.9,
+              fillOpacity: 0
+            });
+            rect.setMap(map);
+            radarDebugShapes.push(rect);
+          } catch (e) { console.warn('[비구름] 격자 확인 실패:', e && e.message); }
+        }
         img.onload = function() { radarTileOk++; refreshRadarLegend(); };
         img.onerror = function() { radarTileFail++; this.style.visibility = 'hidden'; refreshRadarLegend(); };
         frag.appendChild(img);
@@ -4245,6 +4282,7 @@
     var btn = document.getElementById('radarBtn');
     if (!on) {
       radarOn = false;
+      clearRadarDebugShapes();
       if (radarRefreshTimer) { clearInterval(radarRefreshTimer); radarRefreshTimer = null; }
       layer.classList.remove('show');
       layer.innerHTML = '';
@@ -4593,6 +4631,8 @@
       '<button id="admRadarUrl" style="border:1px solid #cbd5e1;border-radius:6px;padding:7px 12px;font-size:12px;cursor:pointer;background:#fff;color:#475569;">직접 주소 넣기(고급)</button>' +
       '<button id="admRadarZoom" style="border:1px solid #cbd5e1;border-radius:6px;padding:7px 12px;font-size:12px;cursor:pointer;background:#fff;color:#475569;">조각 배율 상한 (지금 z' + RADAR_MAX_ZOOM + ')</button>' +
       '<button id="admRadarPeek" style="border:1px solid #cbd5e1;border-radius:6px;padding:7px 12px;font-size:12px;cursor:pointer;background:#fff;color:#475569;">배율별 조각 확인</button>' +
+      '<button id="admRadarGrid" style="border:none;border-radius:6px;padding:7px 12px;font-size:12px;cursor:pointer;background:' +
+      (radarDebug ? '#b45309' : '#1f2937') + ';color:#fff;">격자 맞춤 확인 ' + (radarDebug ? '끄기' : '켜기') + '</button>' +
       '</div>' +
       '<div id="admRadarPeekBox"></div>' +
       '<p style="margin:4px 0 0;font-size:11.5px;color:#64748b;">' +
@@ -4964,6 +5004,16 @@
     // "조각을 못 받아온 것"은 눈으로 구분되지 않는다. 그래서 조각 한 장을 바둑판
     // 무늬 위에 띄워 본다 - 무늬만 보이면 비가 없는 것이고, 아무것도 안 뜨면 못 받은
     // 것이며, 글자가 보이면 그 배율의 조각이 없는 것이다. 셋이 눈으로 갈린다.
+    var rgBtn = document.getElementById('admRadarGrid');
+    if (rgBtn) rgBtn.addEventListener('click', function() {
+      radarDebug = !radarDebug;
+      if (radarOn) drawRadar(); else clearRadarDebugShapes();
+      showStatus(radarDebug
+        ? '격자 맞춤 확인을 켰습니다 — 노란 테두리(우리 계산)와 빨간 사각형(지도 그리기)이 포개지는지 보세요'
+        : '격자 맞춤 확인을 껐습니다');
+      renderAdminConsole();
+    });
+
     var rpBtn = document.getElementById('admRadarPeek');
     if (rpBtn) rpBtn.addEventListener('click', function() {
       var box = document.getElementById('admRadarPeekBox');
