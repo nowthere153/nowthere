@@ -2856,6 +2856,7 @@
     }
     updateCctvButtonVisibility();
     // 컨셉 뷰 목록(관리자가 담아둔 CCTV 좌표)도 같은 설정 문서에 있다 - 호출을 늘리지 않는다.
+    loadConceptDefs(doc.exists ? doc.data() : null);
     loadConceptViews(doc.exists ? doc.data() : null);
     loadRadarSettings(doc.exists ? doc.data() : null);
   }).catch(function(err) { console.error('설정 로드 실패:', err); });
@@ -3756,7 +3757,11 @@
   // 시간대를 두는 이유: 바다는 밤에 깜깜하고 밤 풍경은 낮에 밋밋하다. 같은 카메라가
   // 시간에 따라 전혀 다른 것이 되므로, 지금 볼 만한 것을 앞에 놓고 아닌 것은 그렇다고
   // 말해준다. 감추지는 않는다 - 밤바다를 보고 싶은 사람도 있다.
-  var CONCEPT_DEFS = [
+  // ⚠️ 2026-09-10: 목록을 코드에 박아두면, 새 컨셉이 필요할 때마다 파일을 고쳐 올려야
+  // 한다. 그런데 어떤 묶음이 필요한지는 화면을 보는 사람이 안다(노면 보기가 그 예다).
+  // 그래서 목록 자체를 관리자가 만들고 지우고 공개/비공개를 정하도록 옮긴다.
+  // 아래는 아무것도 저장돼 있지 않을 때 쓰는 첫 목록일 뿐이다.
+  var CONCEPT_SEED = [
     { key: 'sea',    emoji: '🌊', title: '바다 보기', desc: '동해 → 남해 → 서해, 해안선을 따라',   sort: 'sea',        sea: true, best: 'day' },
     { key: 'sunset', emoji: '🌇', title: '노을 보기', desc: '해 지는 순서대로 - 동쪽이 먼저 저뭅니다', sort: 'sunset',              best: 'dusk' },
     { key: 'night',  emoji: '🌃', title: '밤 풍경',   desc: '북에서 남으로 - 불 켜진 거리',        sort: 'northSouth',          best: 'night' },
@@ -3767,11 +3772,37 @@
     // 목록에 "이 카메라에 노면온도가 있다"는 표시가 없으므로, 사람이 보고 담는다.
     { key: 'road',   emoji: '❄️', title: '노면 보기', desc: '화면에 기온·노면온도가 함께 나오는 카메라', sort: 'northSouth',      best: 'any' }
   ];
+  // 실제로 쓰는 목록. config/settings.conceptList 에서 불러온다.
+  var conceptDefs = CONCEPT_SEED.map(function(d) {
+    var c = {}; Object.keys(d).forEach(function(k) { c[k] = d[k]; });
+    c.enabled = true;
+    return c;
+  });
+  var CONCEPT_SORTS = [
+    { key: 'northSouth', label: '북→남' },
+    { key: 'sea',        label: '해역별' },
+    { key: 'sunset',     label: '일몰순' },
+    { key: 'none',       label: '담은 순' }
+  ];
+  var CONCEPT_BESTS = [
+    { key: 'any',   label: '아무 때' },
+    { key: 'day',   label: '낮' },
+    { key: 'dusk',  label: '해질녘' },
+    { key: 'night', label: '밤' }
+  ];
+  function cycleValue(list, cur) {
+    for (var i = 0; i < list.length; i++) if (list[i].key === cur) return list[(i + 1) % list.length].key;
+    return list[0].key;
+  }
+  function labelOf(list, cur) {
+    for (var i = 0; i < list.length; i++) if (list[i].key === cur) return list[i].label;
+    return list[0].label;
+  }
   // { sea: [{name, lat, lng}], ... } - config/settings.conceptViews 에 저장된다.
   var conceptCams = {};
 
   function conceptDefOf(key) {
-    for (var i = 0; i < CONCEPT_DEFS.length; i++) if (CONCEPT_DEFS[i].key === key) return CONCEPT_DEFS[i];
+    for (var i = 0; i < conceptDefs.length; i++) if (conceptDefs[i].key === key) return conceptDefs[i];
     return null;
   }
   function conceptCamsOf(key) {
@@ -3781,16 +3812,17 @@
   // 사용자에게 보이는 컨셉 = 담긴 화면이 하나라도 있는 것. 관리자에게는 빈 것도 보인다
   // (담을 자리가 보여야 담을 수 있으므로).
   function visibleConcepts() {
-    return CONCEPT_DEFS.filter(function(d) { return isAdmin || conceptCamsOf(d.key).length > 0; });
+    // 사용자에게는 "공개로 둔 것 중 담긴 게 있는 것"만. 관리자에게는 전부(비공개 표시).
+    return conceptDefs.filter(function(d) { return isAdmin || (d.enabled !== false && conceptCamsOf(d.key).length > 0); });
   }
   function anyConceptCurated() {
-    return CONCEPT_DEFS.some(function(d) { return conceptCamsOf(d.key).length > 0; });
+    return conceptDefs.some(function(d) { return d.enabled !== false && conceptCamsOf(d.key).length > 0; });
   }
   function updateConceptButtonVisibility() {
     var btn = document.getElementById('conceptBtn');
-    // CONCEPT_DEFS는 이 함수보다 아래에서 대입된다. 로그인 콜백은 항상 비동기라 실제로는
+    // conceptDefs는 이 함수보다 아래에서 대입된다. 로그인 콜백은 항상 비동기라 실제로는
     // 늦게 불리지만, 순서를 콜백 타이밍에 맡기지 않는다(그 가정이 깨지면 조용히 죽는다).
-    if (!btn || !CONCEPT_DEFS) return;
+    if (!btn || !conceptDefs) return;
     // CCTV 기능 자체가 비공개면 컨셉 뷰도 없다(같은 재료를 쓰므로).
     // ⚠️ 담긴 화면이 0곳이면 일반 방문자에게는 버튼을 감춘다 - 눌러도 빈 목록만 나오는
     // 버튼은 없는 것만 못하다. 관리자에게는 담을 자리가 보여야 하므로 항상 보인다.
@@ -3800,11 +3832,38 @@
                                     : '풍경 컨셉 - 아직 담긴 화면이 없습니다(관리자만 보임)';
   }
 
+  // 목록 정의를 저장한다(담긴 카메라와는 별개다 - 목록을 지워도 카메라 목록은 남지
+  // 않도록 함께 정리한다).
+  function saveConceptDefs(done) {
+    var payload = conceptDefs.map(function(d) {
+      return { key: d.key, emoji: d.emoji, title: d.title, desc: d.desc,
+               sort: d.sort || 'northSouth', best: d.best || 'any', enabled: d.enabled !== false };
+    });
+    db.collection('config').doc('settings').set({ conceptList: payload }, { merge: true })
+      .then(function() { updateConceptButtonVisibility(); if (done) done(true); })
+      .catch(function(err) {
+        console.error('컨셉 목록 저장 실패:', err);
+        showStatus('⚠️ 저장하지 못했습니다 - 관리자로 로그인되어 있는지 확인해주세요');
+        if (done) done(false);
+      });
+  }
+
+  function loadConceptDefs(data) {
+    var saved = data && data.conceptList;
+    if (Array.isArray(saved) && saved.length) {
+      conceptDefs = saved.filter(function(d) { return d && d.key && d.title; }).map(function(d) {
+        return { key: String(d.key), emoji: d.emoji || '📍', title: String(d.title),
+                 desc: d.desc || '', sort: d.sort || 'northSouth', best: d.best || 'any',
+                 enabled: d.enabled !== false };
+      });
+    }
+  }
+
   function loadConceptViews(data) {
     var saved = data && data.conceptViews;
     conceptCams = {};
     if (saved) {
-      CONCEPT_DEFS.forEach(function(d) {
+      conceptDefs.forEach(function(d) {
         var arr = saved[d.key];
         if (!Array.isArray(arr)) return;
         conceptCams[d.key] = arr.filter(function(c) {
@@ -3817,7 +3876,7 @@
 
   function saveConceptViews(done) {
     var payload = {};
-    CONCEPT_DEFS.forEach(function(d) { payload[d.key] = conceptCamsOf(d.key); });
+    conceptDefs.forEach(function(d) { payload[d.key] = conceptCamsOf(d.key); });
     db.collection('config').doc('settings').set({ conceptViews: payload }, { merge: true })
       .then(function() { updateConceptButtonVisibility(); if (done) done(true); })
       .catch(function(err) {
@@ -3963,6 +4022,7 @@
       var sub = row.timing.good
         ? '<span style="color:#0a7d2c;font-weight:700;">지금 보기 좋아요</span> · ' + escapeHtml(d.desc)
         : escapeHtml(row.timing.hint);
+      if (d.enabled === false) sub = '<span style="color:#b45309;font-weight:700;">비공개</span> · ' + escapeHtml(d.desc);
       return '<div class="cvRow" data-key="' + d.key + '" style="display:flex;align-items:center;gap:11px;' +
         'padding:12px 4px;border-bottom:1px solid #f1f5f9;cursor:pointer;opacity:' + (row.timing.good ? '1' : '0.72') + ';">' +
         '<span style="font-size:22px;line-height:1;">' + d.emoji + '</span>' +
@@ -4000,7 +4060,7 @@
       // 동쪽이 먼저 저문다. 일몰이 이른 순 = 동 → 서.
       cams.forEach(function(c) { c._sun = sunsetMinutesKST(c.lat, c.lng, today); });
       cams.sort(function(a, b) { return (a._sun == null ? 99999 : a._sun) - (b._sun == null ? 99999 : b._sun); });
-    } else if (def.sea) {
+    } else if (def.sort === 'sea') {
       // ⚠️ 2026-09-10: 북→남 하나로 줄 세우니 동해와 서해가 뒤섞였다. 우리는 바다를
       // 위도로 기억하지 않고 <b>해역</b>으로 기억한다 - 동해, 남해, 서해. 그래서 먼저
       // 해역으로 묶고, 해역마다 사람이 실제로 훑는 방향으로 세운다.
@@ -4047,7 +4107,7 @@
       if (def.sort === 'sunset' && c._sun != null) {
         var rel = sunsetRelLabel(c._sun);
         label = hhmm(c._sun) + ' 일몰' + (rel ? ' · ' + rel : '') + ' — ' + label;
-      } else if (def.sea) {
+      } else if (def.sort === 'sea') {
         label = seaLabelOf(c.lat, c.lng) + ' · ' + label;
       }
       return { label: label, lat: c.lat, lng: c.lng, exact: true, _cam: c };
@@ -4079,7 +4139,7 @@
   // 지도에서 CCTV를 열어둔 상태에서 "이 화면을 담는다" - 큐레이션의 유일한 입구다.
   // 관리자가 실제로 그 화면을 눈으로 본 뒤에만 담기게 되므로, 잘못 담길 여지가 적다.
   function openConceptPicker(entry) {
-    var rows = CONCEPT_DEFS.map(function(d) {
+    var rows = conceptDefs.map(function(d) {
       var has = conceptCamsOf(d.key).some(function(c) {
         return Math.abs(c.lat - entry.lat) < 1e-6 && Math.abs(c.lng - entry.lng) < 1e-6;
       });
@@ -4698,6 +4758,32 @@
     }).join('');
   }
 
+  function conceptAdminRows() {
+    if (!conceptDefs.length) return '<div style="font-size:12px;color:#94a3b8;padding:6px 0;">목록이 없습니다.</div>';
+    return conceptDefs.map(function(d, i) {
+      var n = conceptCamsOf(d.key).length;
+      var on = d.enabled !== false;
+      var btn = function(id, label, bg, color, border) {
+        return '<button data-ci="' + i + '" class="' + id + '" style="border:' + (border || 'none') +
+          ';border-radius:6px;padding:5px 9px;font-size:11.5px;cursor:pointer;background:' + bg +
+          ';color:' + color + ';">' + label + '</button>';
+      };
+      return '<div style="padding:8px 0;border-bottom:1px solid #f1f5f9;">' +
+        '<div style="display:flex;align-items:center;gap:8px;">' +
+        '<span style="font-size:18px;">' + escapeHtml(d.emoji || '📍') + '</span>' +
+        '<b style="font-size:13px;flex:1;min-width:0;">' + escapeHtml(d.title) + '</b>' +
+        '<span style="font-size:11.5px;color:#64748b;">' + n + '곳</span></div>' +
+        '<div style="font-size:11.5px;color:#94a3b8;margin:2px 0 6px;">' + escapeHtml(d.desc || '') + '</div>' +
+        '<div style="display:flex;gap:5px;flex-wrap:wrap;">' +
+        btn('cAdmOn', on ? '공개 중' : '비공개', on ? '#0a7d2c' : '#cbd5e1', on ? '#fff' : '#475569') +
+        btn('cAdmEdit', '이름·설명', '#fff', '#475569', '1px solid #cbd5e1') +
+        btn('cAdmSort', '정렬 ' + labelOf(CONCEPT_SORTS, d.sort), '#fff', '#475569', '1px solid #cbd5e1') +
+        btn('cAdmBest', '때 ' + labelOf(CONCEPT_BESTS, d.best), '#fff', '#475569', '1px solid #cbd5e1') +
+        btn('cAdmDel', '삭제', '#fff', '#b91c1c', '1px solid #fecaca') +
+        '</div></div>';
+    }).join('');
+  }
+
   function renderAdminConsole() {
     var counts = {};
     sharedSpots.forEach(function(sp) {
@@ -4825,6 +4911,16 @@
       // ⚠️ 2026-09-09: 판 번호를 화면에 드러낸다.
       // "올렸는데 안 바뀐 것 같다"를 판정할 방법이 콘솔뿐이었다. 올린 파일이 실제로
       // 지금 돌고 있는 파일인지 눈으로 확인할 수 있어야 한다.
+      // ⚠️ 2026-09-10 신설: 풍경 목록을 코드가 아니라 여기서 만든다.
+      // 어떤 묶음이 필요한지는 화면을 보는 사람이 안다 - 노면 보기가 그 예다.
+      '<div style="font-weight:700;margin:16px 0 6px;">9. 풍경 목록</div>' +
+      '<div style="font-size:11.5px;color:#64748b;margin-bottom:6px;line-height:1.7;">' +
+      '목록을 만들고, 이름을 고치고, 지울 수 있습니다. <b>비공개</b>로 두면 담긴 화면이 있어도 ' +
+      '일반 사용자에게는 보이지 않습니다 — 계절이 아닌 묶음(노면 보기 등)을 미리 채워둘 때 씁니다.<br>' +
+      '카메라를 담고 빼는 것은 지도에서 CCTV를 열어 <b>📌 컨셉에 담기</b>로 합니다.</div>' +
+      conceptAdminRows() +
+      '<button id="admConceptNew" style="margin-top:8px;border:none;border-radius:6px;padding:7px 12px;font-size:12px;cursor:pointer;background:#1f2937;color:#fff;">＋ 새 목록 만들기</button>' +
+
       '<div style="margin:18px 0 2px;padding-top:12px;border-top:1px solid #e2e8f0;">' +
       '<div style="font-size:11.5px;color:#94a3b8;margin-bottom:10px;">지금 이 화면의 판 번호 — <b style="color:#475569;">' + NOWTHERE_VERSION + '</b></div>' +
       '<button id="admLogoutBtn" style="padding:8px 14px;border-radius:8px;border:1px solid #ddd;background:#fff;color:#475569;cursor:pointer;font-size:13px;">관리자 로그아웃</button>' +
@@ -5174,6 +5270,68 @@
     // ⚠️ 어느 번호가 어떤 색인지 문서로 외우게 하지 않는다. 같은 자리를 색상표별로
     // 늘어놓고 눈으로 고르게 한다(배율 확인과 같은 방식). 지금 강수가 있는 화면에서
     // 눌러야 색 차이가 보인다는 점만 알려준다.
+    // ── 9. 풍경 목록
+    function bindConcept(cls, fn) {
+      Array.prototype.forEach.call(document.querySelectorAll('#modalBody .' + cls), function(b) {
+        b.addEventListener('click', function() {
+          var d = conceptDefs[parseInt(b.getAttribute('data-ci'), 10)];
+          if (d) fn(d);
+        });
+      });
+    }
+    function afterConceptChange(msg) {
+      saveConceptDefs(function(ok) {
+        if (!ok) return;
+        showStatus(msg);
+        renderAdminConsole();
+      });
+    }
+    bindConcept('cAdmOn', function(d) {
+      d.enabled = (d.enabled === false);
+      afterConceptChange(d.enabled ? '“' + d.title + '”을 공개로 바꿨습니다.' : '“' + d.title + '”을 비공개로 두었습니다.');
+    });
+    bindConcept('cAdmSort', function(d) {
+      d.sort = cycleValue(CONCEPT_SORTS, d.sort);
+      afterConceptChange('정렬을 “' + labelOf(CONCEPT_SORTS, d.sort) + '”으로 바꿨습니다.');
+    });
+    bindConcept('cAdmBest', function(d) {
+      d.best = cycleValue(CONCEPT_BESTS, d.best);
+      afterConceptChange('보기 좋은 때를 “' + labelOf(CONCEPT_BESTS, d.best) + '”으로 바꿨습니다.');
+    });
+    bindConcept('cAdmEdit', function(d) {
+      var v = prompt('이모지 | 이름 | 설명  (막대기로 구분)', (d.emoji || '') + ' | ' + d.title + ' | ' + (d.desc || ''));
+      if (v === null) return;
+      var parts = v.split('|');
+      var emoji = (parts[0] || '').trim(), title = (parts[1] || '').trim(), desc = (parts[2] || '').trim();
+      if (!title) { alert('이름은 비울 수 없습니다.'); return; }
+      d.emoji = emoji || '📍'; d.title = title; d.desc = desc;
+      afterConceptChange('“' + title + '”으로 고쳤습니다.');
+    });
+    bindConcept('cAdmDel', function(d) {
+      var n = conceptCamsOf(d.key).length;
+      if (!confirm('“' + d.title + '” 목록을 지웁니다.' + (n ? '\n담겨 있는 ' + n + '곳도 함께 사라집니다.' : '') + '\n\n계속할까요?')) return;
+      conceptDefs = conceptDefs.filter(function(x) { return x.key !== d.key; });
+      delete conceptCams[d.key];
+      saveConceptDefs(function(ok) {
+        if (!ok) return;
+        saveConceptViews(function() {
+          showStatus('“' + d.title + '” 목록을 지웠습니다.');
+          renderAdminConsole();
+        });
+      });
+    });
+    var cnBtn = document.getElementById('admConceptNew');
+    if (cnBtn) cnBtn.addEventListener('click', function() {
+      var v = prompt('새 목록을 만듭니다.\n\n이모지 | 이름 | 설명  (막대기로 구분)\n예)  🌉 | 다리 보기 | 강을 건너는 다리들', '📍 |  | ');
+      if (v === null) return;
+      var parts = v.split('|');
+      var emoji = (parts[0] || '').trim(), title = (parts[1] || '').trim(), desc = (parts[2] || '').trim();
+      if (!title) { alert('이름을 넣어주세요.'); return; }
+      conceptDefs.push({ key: 'c_' + Date.now().toString(36), emoji: emoji || '📍',
+                         title: title, desc: desc, sort: 'northSouth', best: 'any', enabled: true });
+      afterConceptChange('“' + title + '” 목록을 만들었습니다. 이제 CCTV를 열어 담아보세요.');
+    });
+
     var rlkBtn = document.getElementById('admRadarLook');
     if (rlkBtn) rlkBtn.addEventListener('click', function() {
       var next = (radarLook + 1) % RADAR_LOOK_PRESETS.length;
