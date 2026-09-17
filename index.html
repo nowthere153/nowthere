@@ -1774,7 +1774,7 @@
           lat: ilat, lng: ilng,
           imageUrl: item.imageUrl || '', streamUrl: item.cctvurl || '',
           mp4Url: item.mp4Url || '', liveFirst: !!item.liveFirst, relayLive: !!item.relayLive,
-          ggResolve: !!item.ggResolve, streamResolve: item.streamResolve || '', offerNm: item.offerNm || '',
+          ggResolve: !!item.ggResolve, streamResolve: item.streamResolve || '', offerNm: item.offerNm || '', roadType: item.roadType || '',
           maxSeconds: item.maxSeconds || 0
         });
         // 넘어왔으면 돌아갈 수 있어야 한다. 스팟을 보다 주변 카메라를 확인하고
@@ -2403,7 +2403,7 @@
         lat: ilat, lng: ilng,
         imageUrl: item.imageUrl || '', streamUrl: item.cctvurl || '',
         mp4Url: item.mp4Url || '', liveFirst: !!item.liveFirst, relayLive: !!item.relayLive,
-        ggResolve: !!item.ggResolve, streamResolve: item.streamResolve || '', offerNm: item.offerNm || '',
+        ggResolve: !!item.ggResolve, streamResolve: item.streamResolve || '', offerNm: item.offerNm || '', roadType: item.roadType || '',
         maxSeconds: item.maxSeconds || 0
       });
       if (afterMsg) setTimeout(function() { showStatus(afterMsg); }, 900);
@@ -2936,6 +2936,24 @@
     cctvMarkers = [];
   }
 
+  // ⚠️ 2026-09-17 보완: 처음에는 서버가 이름을 붙여 보내는 소스(지자체 3곳)에만
+  // 출처가 나왔다. 그건 의도가 아니라 서버가 그쪽에만 이름을 넣기 때문이었다.
+  // 출처 표기는 "허락 없이 쓰는 곳"에만 하는 변명이 아니라 남의 자료를 보여줄 때의
+  // 기본이고, 공공데이터 이용 조건에도 대개 출처 표시가 들어 있다.
+  // API로 받아오는 소스는 이름이 안 오므로, 어느 창구에서 왔는지로 우리가 채운다.
+  var CCTV_PROVIDER_BY_TYPE = {
+    ex: '국토교통부 국가교통정보센터',
+    its: '국토교통부 국가교통정보센터',
+    'utic-city': '경찰청 도시교통정보센터(UTIC)',
+    utic: '경찰청 도시교통정보센터(UTIC)',
+    gg: '경기도 교통정보센터'
+  };
+  function cctvProviderOf(entry) {
+    if (!entry) return '';
+    if (entry.offerNm) return entry.offerNm;              // 서버가 알려준 이름이 가장 정확
+    return CCTV_PROVIDER_BY_TYPE[entry.roadType] || '';   // 모르면 적지 않는다(틀린 출처가 더 나쁘다)
+  }
+
   // entry: { name, lat, lng, imageUrl, streamUrl } - 마커를 처음 클릭했을 때도,
   // 하단 "확인한 곳" 목록(restoreBar)에서 다시 클릭했을 때도 이 함수 하나로 처리함
   // (openCctvPopup 분리 전에는 마커 클릭 핸들러 안에만 있어서 목록에서 재사용할 수 없었음).
@@ -2982,9 +3000,10 @@
       // 예의 문제만이 아니다 - 공공자료 분쟁의 상당수가 "출처를 밝히지 않고 자기 것처럼
       // 보이게 한 것"에서 터진다. 밝히는 순간 그 다툼의 씨앗이 사라지고, 제공기관
       // 입장에서는 오히려 자기 시설이 더 알려지는 일이 된다.
+      var providedBy = cctvProviderOf(entry);
       var body = '<p style="margin:0 0 8px;color:#888;font-size:12.5px;">' + name +
-        (entry.offerNm ? '<br><span style="font-size:11.5px;color:#a3a3a3;">영상 제공 · ' +
-          escapeHtml(entry.offerNm) + '</span>' : '') + '</p>' +
+        (providedBy ? '<br><span style="font-size:11.5px;color:#a3a3a3;">영상 제공 · ' +
+          escapeHtml(providedBy) + '</span>' : '') + '</p>' +
         weatherLinePlaceholder('cctvWeatherLine', true) +
         '<div style="position:relative;">' +
         '<img id="cctvSnapshotImg" style="width:100%;max-width:480px;aspect-ratio:4/3;' +
@@ -3267,7 +3286,7 @@
           color: 'purple',
           iconSize: iconSize,
           onClick: function() {
-            openCctvPopup({ name: name, lat: lat, lng: lng, imageUrl: imageUrl, streamUrl: streamUrl, mp4Url: item.mp4Url || '', liveFirst: !!item.liveFirst, relayLive: !!item.relayLive, ggResolve: !!item.ggResolve, streamResolve: item.streamResolve || '', offerNm: item.offerNm || '', maxSeconds: item.maxSeconds || 0 });
+            openCctvPopup({ name: name, lat: lat, lng: lng, imageUrl: imageUrl, streamUrl: streamUrl, mp4Url: item.mp4Url || '', liveFirst: !!item.liveFirst, relayLive: !!item.relayLive, ggResolve: !!item.ggResolve, streamResolve: item.streamResolve || '', offerNm: item.offerNm || '', roadType: item.roadType || '', maxSeconds: item.maxSeconds || 0 });
           }
         }));
       });
@@ -3702,7 +3721,7 @@
           // 1.2km")라서, 그대로 앞에 붙이면 팝업 제목이 "약 1.2km · 카메라이름"이 되어
           // 어디인지 알려주지 못한다. 미리 고른 카메라를 쓰는 경우에는 카메라 이름을
           // 앞세우고 거리를 괄호로 덧붙인다(전국보기는 라벨이 도시명이라 기존 그대로).
-          openCctvPopup({ name: pt.item ? (name + ' (' + pt.label + ')') : (pt.label + ' · ' + name), lat: ilat, lng: ilng, imageUrl: imageUrl, streamUrl: streamUrl, mp4Url: item.mp4Url || '', liveFirst: !!item.liveFirst, relayLive: !!item.relayLive, ggResolve: !!item.ggResolve, streamResolve: item.streamResolve || '', offerNm: item.offerNm || '', maxSeconds: item.maxSeconds || 0 });
+          openCctvPopup({ name: pt.item ? (name + ' (' + pt.label + ')') : (pt.label + ' · ' + name), lat: ilat, lng: ilng, imageUrl: imageUrl, streamUrl: streamUrl, mp4Url: item.mp4Url || '', liveFirst: !!item.liveFirst, relayLive: !!item.relayLive, ggResolve: !!item.ggResolve, streamResolve: item.streamResolve || '', offerNm: item.offerNm || '', roadType: item.roadType || '', maxSeconds: item.maxSeconds || 0 });
           if (backToGrid) setModalBack(backToGrid, '보던 화면');
         });
         // 컨셉 뷰(관리자 큐레이션)가 이 칸에 실제로 어떤 카메라가 잡혔는지 알아야
