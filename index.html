@@ -672,7 +672,7 @@
   // 생기면 재사용 가능) index.html에서는 호출하지 않음.
   // 배포된 파일이 최신인지 콘솔에서 한 줄로 확인하기 위한 표시.
   // 같은 이유로 여러 번 헛돌아서(옛 파일이 올라간 줄 모르고 디버깅) 넣어둠.
-  var NOWTHERE_VERSION = 'v2026-09-18g (본 곳 옆에 남기기 · 격자 열쇠)';
+  var NOWTHERE_VERSION = 'v2026-09-18h (한라산 5곳 추가)';
   console.log('[NowThere] ' + NOWTHERE_VERSION);
 
   var CCTV_PROXY_BASE_URL = 'https://api.nowthere.net';
@@ -5547,16 +5547,27 @@
     { k: 'knps16', t: '계룡산국립공원(천황봉)',       u: 'https://www.knps.or.kr/common/cctv/cctv16.do' },
     { k: 'knps17', t: '치악산국립공원(상원사)',       u: 'https://www.knps.or.kr/common/cctv/cctv17.do' }
   ];
-  var PARK_CAM_PROVIDER = '국립공원공단';
+  // ⚠️ 2026-09-18 추가: 제주 한라산 탐방로 5곳. 국립공원공단과 기관이 다르므로
+  // 제공기관을 줄마다 따로 갖는다 - 출처는 묶어서 적으면 틀린 출처가 된다(DC-39).
+  // 재해위험지구 12곳·적설감시 10곳은 지점별 페이지 주소가 아직 없어 넣지 않았다.
+  var JEJU_HALLA_SEED = [
+    { k: 'halla1', t: '한라산 탐방로(백록담)',   u: 'https://www.jeju.go.kr/tool/halla/cctv.html',    p: '제주특별자치도' },
+    { k: 'halla2', t: '한라산 탐방로(왕관릉)',   u: 'https://www.jeju.go.kr/tool/halla/cctv_02.html', p: '제주특별자치도' },
+    { k: 'halla3', t: '한라산 탐방로(윗세오름)', u: 'https://www.jeju.go.kr/tool/halla/cctv_03.html', p: '제주특별자치도' },
+    { k: 'halla4', t: '한라산 탐방로(어승생악)', u: 'https://www.jeju.go.kr/tool/halla/cctv_04.html', p: '제주특별자치도' },
+    { k: 'halla5', t: '한라산 탐방로(1100도로)', u: 'https://www.jeju.go.kr/tool/halla/cctv_05.html', p: '제주특별자치도' }
+  ];
+  var PARK_CAM_PROVIDER = '국립공원공단';   // 제공기관이 줄에 없을 때의 기본값
   var parkCamState = {};      // key -> { lat, lng, on }  · config/settings.parkCams
   var parkCamMarkers = [];
   var parkPlacingKey = null;
 
   function parkCamsAll() {
-    return PARK_CAM_SEED.map(function(s) {
+    return PARK_CAM_SEED.concat(JEJU_HALLA_SEED).map(function(s) {
       var st = parkCamState[s.k] || {};
       return {
         key: s.k, title: s.t, url: s.u || '',
+        provider: s.p || PARK_CAM_PROVIDER,
         lat: (typeof st.lat === 'number') ? st.lat : null,
         lng: (typeof st.lng === 'number') ? st.lng : null,
         on: st.on === true
@@ -5614,10 +5625,10 @@
   function openParkCamModal(cam) {
     var body =
       '<p style="margin:0 0 4px;font-size:15px;font-weight:700;color:#111827;">' + escapeHtml(cam.title) + '</p>' +
-      '<p style="margin:0 0 12px;font-size:11.5px;color:#94a3b8;">영상 제공 · ' + escapeHtml(PARK_CAM_PROVIDER) + '</p>' +
+      '<p style="margin:0 0 12px;font-size:11.5px;color:#94a3b8;">영상 제공 · ' + escapeHtml(cam.provider || PARK_CAM_PROVIDER) + '</p>' +
       (cam.url
         ? '<p style="font-size:12.5px;color:#475569;line-height:1.7;margin-bottom:12px;">' +
-          '이 화면은 제공처에서 직접 보여드립니다. 아래를 누르면 <b>' + escapeHtml(PARK_CAM_PROVIDER) + '</b> 페이지가 새 탭으로 열립니다.</p>' +
+          '이 화면은 제공처에서 직접 보여드립니다. 아래를 누르면 <b>' + escapeHtml(cam.provider || PARK_CAM_PROVIDER) + '</b> 페이지가 새 탭으로 열립니다.</p>' +
           '<a href="' + escapeAttr(cam.url) + '" target="_blank" rel="noopener noreferrer" ' +
           'style="display:block;text-align:center;padding:11px;border-radius:9px;background:#0f766e;color:#fff;' +
           'font-size:13px;font-weight:700;text-decoration:none;">실시간 화면 보기 (새 탭)</a>'
@@ -5678,7 +5689,8 @@
         : '<span style="color:#b45309;">자리 없음</span>';
       return '<div style="display:flex;align-items:center;gap:8px;padding:7px 0;border-bottom:1px solid #f1f5f9;flex-wrap:wrap;">' +
         '<span style="flex:1 1 180px;min-width:0;font-size:12px;color:#334155;">' + escapeHtml(c.title) +
-        '<br><span style="font-size:11px;">' + where + '</span></span>' +
+        '<br><span style="font-size:11px;color:#94a3b8;">' + escapeHtml(c.provider) + ' · </span>' +
+        '<span style="font-size:11px;">' + where + '</span></span>' +
         (c.url
           ? '<a href="' + escapeAttr(c.url) + '" target="_blank" rel="noopener noreferrer" ' +
             'style="flex:0 0 auto;padding:5px 10px;border:1px solid #cbd5e1;border-radius:6px;' +
@@ -5866,7 +5878,7 @@
       // 카메라가 보는 대상인지도 알 수 없다(설악산 울산바위는 아마 보는 쪽이다).
       // 그런데 열일곱 개뿐이다. 자동으로 풀 문제가 아니라 손으로 확정할 문제다.
       // 화면을 한 번 열어보면 대부분 답이 나오고, 한 곳에 1~2분이면 끝난다.
-      '<div style="font-weight:700;margin:16px 0 6px;">10. 산·해안 카메라 (국립공원공단)</div>' +
+      '<div style="font-weight:700;margin:16px 0 6px;">10. 산·바다 카메라 (링크 방식)</div>' +
       '<div style="font-size:11.5px;color:#64748b;margin-bottom:8px;line-height:1.7;">' +
       '좌표가 없는 소스입니다. <b>자리 잡기</b>를 누르면 콘솔이 닫히고, 지도에서 누른 자리가 그 카메라의 자리가 됩니다.<br>' +
       '<b>보기</b>로 먼저 화면을 열어 확인하세요 — 이름이 카메라가 <b>선</b> 자리인지 <b>보는</b> 대상인지 그림을 봐야 압니다.<br>' +
