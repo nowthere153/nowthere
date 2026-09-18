@@ -672,7 +672,7 @@
   // 생기면 재사용 가능) index.html에서는 호출하지 않음.
   // 배포된 파일이 최신인지 콘솔에서 한 줄로 확인하기 위한 표시.
   // 같은 이유로 여러 번 헛돌아서(옛 파일이 올라간 줄 모르고 디버깅) 넣어둠.
-  var NOWTHERE_VERSION = 'v2026-09-18i (산바다 카메라 직접 재생)';
+  var NOWTHERE_VERSION = 'v2026-09-18j (콘솔에서 바로 재생 확인)';
   console.log('[NowThere] ' + NOWTHERE_VERSION);
 
   var CCTV_PROXY_BASE_URL = 'https://api.nowthere.net';
@@ -5630,8 +5630,12 @@
     // 주소가 https 이고 제공처가 다른 주소에서의 접근을 막지 않을 때만 실제로 보인다.
     // 안 보이면 openCctvPopup 이 알아서 실패를 알리므로, 여기서 미리 판단하지 않는다.
     if (cam.stream) {
+      // 자리를 아직 안 잡았으면 좌표가 없다. 그래도 재생은 되어야 한다 - 화면을
+      // 봐야 어디인지 알고, 알아야 자리를 잡는다. 순서가 그 반대가 아니다.
       openCctvPopup({
-        name: cam.title, lat: cam.lat, lng: cam.lng,
+        name: cam.title,
+        lat: (cam.lat == null ? undefined : cam.lat),
+        lng: (cam.lng == null ? undefined : cam.lng),
         imageUrl: '', streamUrl: cam.stream, liveFirst: true,
         offerNm: cam.provider || PARK_CAM_PROVIDER
       });
@@ -5708,11 +5712,19 @@
         '<span style="font-size:11px;">' + where +
         (c.stream ? ' <span style="color:#0a7d2c;">· 우리 화면에서 재생</span>'
                   : ' <span style="color:#94a3b8;">· 링크로 보냄</span>') + '</span></span>' +
+        // ⚠️ 2026-09-18 고침: 영상 주소를 넣었는데도 '보기'가 제공처 페이지를 열었다.
+        // 지도 핀 쪽만 고치고 이 버튼을 안 고쳤다 - 같은 말("보기")이 두 가지 다른
+        // 일을 하고 있었다. 영상이 있으면 우리 화면에서 틀어 그 자리에서 확인하게 한다.
+        (c.stream
+          ? '<button class="pcPlay" data-k="' + escapeAttr(c.key) + '" style="flex:0 0 auto;padding:5px 10px;' +
+            'border:none;border-radius:6px;font-size:11.5px;cursor:pointer;background:#0f766e;color:#fff;">▶ 재생</button>'
+          : '') +
         (c.url
           ? '<a href="' + escapeAttr(c.url) + '" target="_blank" rel="noopener noreferrer" ' +
             'style="flex:0 0 auto;padding:5px 10px;border:1px solid #cbd5e1;border-radius:6px;' +
-            'font-size:11.5px;color:#475569;text-decoration:none;background:#fff;">보기</a>'
-          : '<span style="flex:0 0 auto;font-size:11px;color:#b45309;">점검 중</span>') +
+            'font-size:11.5px;color:#475569;text-decoration:none;background:#fff;">' +
+            (c.stream ? '페이지' : '보기') + '</a>'
+          : (c.stream ? '' : '<span style="flex:0 0 auto;font-size:11px;color:#b45309;">점검 중</span>')) +
         '<button class="pcPlace" data-k="' + escapeAttr(c.key) + '" style="flex:0 0 auto;padding:5px 10px;' +
         'border:1px solid #cbd5e1;border-radius:6px;font-size:11.5px;cursor:pointer;background:#fff;color:#475569;">' +
         (placed ? '자리 고치기' : '자리 잡기') + '</button>' +
@@ -5733,6 +5745,17 @@
     Array.prototype.forEach.call(document.querySelectorAll('#modalBody .pcPlace'), function(b) {
       b.addEventListener('click', function() { startParkPlacing(b.getAttribute('data-k')); });
     });
+    Array.prototype.forEach.call(document.querySelectorAll('#modalBody .pcPlay'), function(b) {
+      b.addEventListener('click', function() {
+        var cam = parkCamByKey(b.getAttribute('data-k'));
+        if (!cam) return;
+        openParkCamModal(cam);
+        // 확인하고 목록으로 돌아올 수 있어야 한다. 스물두 곳을 한 번에 넣을 때
+        // 매번 콘솔을 다시 여는 것은 스물두 번 여는 일이다(IV-14).
+        setModalBack(renderAdminConsole, '관리자 콘솔');
+      });
+    });
+
     // 영상 주소 넣기. 짐작으로 채우지 않는다 - 페이지 번호와 영상 번호가 다른 것을
     // 실제로 확인했다(cctv_05.html 이 cctv03.stream 을 쓴다). 화면을 본 사람이 넣는다.
     Array.prototype.forEach.call(document.querySelectorAll('#modalBody .pcStream'), function(b) {
