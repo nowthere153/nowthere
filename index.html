@@ -672,7 +672,7 @@
   // 생기면 재사용 가능) index.html에서는 호출하지 않음.
   // 배포된 파일이 최신인지 콘솔에서 한 줄로 확인하기 위한 표시.
   // 같은 이유로 여러 번 헛돌아서(옛 파일이 올라간 줄 모르고 디버깅) 넣어둠.
-  var NOWTHERE_VERSION = 'v2026-09-18h (한라산 5곳 추가)';
+  var NOWTHERE_VERSION = 'v2026-09-18i (산바다 카메라 직접 재생)';
   console.log('[NowThere] ' + NOWTHERE_VERSION);
 
   var CCTV_PROXY_BASE_URL = 'https://api.nowthere.net';
@@ -5568,6 +5568,7 @@
       return {
         key: s.k, title: s.t, url: s.u || '',
         provider: s.p || PARK_CAM_PROVIDER,
+        stream: (typeof st.stream === 'string') ? st.stream : '',
         lat: (typeof st.lat === 'number') ? st.lat : null,
         lng: (typeof st.lng === 'number') ? st.lng : null,
         on: st.on === true
@@ -5623,6 +5624,19 @@
   }
 
   function openParkCamModal(cam) {
+    // ⚠️ 2026-09-18: 영상 주소가 들어온 카메라는 링크로 내보내지 않고 우리 화면에서
+    // 튼다. 링크는 제공처 페이지를 통째로 열기 때문에 선택 메뉴까지 같이 뜨고,
+    // 사용자는 우리 사이트 밖으로 나간다 - 방법이 없을 때의 차선이지 목표가 아니다.
+    // 주소가 https 이고 제공처가 다른 주소에서의 접근을 막지 않을 때만 실제로 보인다.
+    // 안 보이면 openCctvPopup 이 알아서 실패를 알리므로, 여기서 미리 판단하지 않는다.
+    if (cam.stream) {
+      openCctvPopup({
+        name: cam.title, lat: cam.lat, lng: cam.lng,
+        imageUrl: '', streamUrl: cam.stream, liveFirst: true,
+        offerNm: cam.provider || PARK_CAM_PROVIDER
+      });
+      return;
+    }
     var body =
       '<p style="margin:0 0 4px;font-size:15px;font-weight:700;color:#111827;">' + escapeHtml(cam.title) + '</p>' +
       '<p style="margin:0 0 12px;font-size:11.5px;color:#94a3b8;">영상 제공 · ' + escapeHtml(cam.provider || PARK_CAM_PROVIDER) + '</p>' +
@@ -5677,7 +5691,8 @@
     var all = parkCamsAll();
     var placed = all.filter(function(c) { return c.lat != null && c.lng != null; }).length;
     var on = all.filter(function(c) { return c.on; }).length;
-    return '전체 ' + all.length + '곳 · 자리 잡음 ' + placed + ' · 공개 ' + on +
+    var streamed = all.filter(function(c) { return c.stream; }).length;
+    return '전체 ' + all.length + '곳 · 자리 잡음 ' + placed + ' · 영상 ' + streamed + ' · 공개 ' + on +
       ' <span style="color:#94a3b8;">(눌러서 펼치기)</span>';
   }
 
@@ -5690,7 +5705,9 @@
       return '<div style="display:flex;align-items:center;gap:8px;padding:7px 0;border-bottom:1px solid #f1f5f9;flex-wrap:wrap;">' +
         '<span style="flex:1 1 180px;min-width:0;font-size:12px;color:#334155;">' + escapeHtml(c.title) +
         '<br><span style="font-size:11px;color:#94a3b8;">' + escapeHtml(c.provider) + ' · </span>' +
-        '<span style="font-size:11px;">' + where + '</span></span>' +
+        '<span style="font-size:11px;">' + where +
+        (c.stream ? ' <span style="color:#0a7d2c;">· 우리 화면에서 재생</span>'
+                  : ' <span style="color:#94a3b8;">· 링크로 보냄</span>') + '</span></span>' +
         (c.url
           ? '<a href="' + escapeAttr(c.url) + '" target="_blank" rel="noopener noreferrer" ' +
             'style="flex:0 0 auto;padding:5px 10px;border:1px solid #cbd5e1;border-radius:6px;' +
@@ -5699,6 +5716,10 @@
         '<button class="pcPlace" data-k="' + escapeAttr(c.key) + '" style="flex:0 0 auto;padding:5px 10px;' +
         'border:1px solid #cbd5e1;border-radius:6px;font-size:11.5px;cursor:pointer;background:#fff;color:#475569;">' +
         (placed ? '자리 고치기' : '자리 잡기') + '</button>' +
+        '<button class="pcStream" data-k="' + escapeAttr(c.key) + '" style="flex:0 0 auto;padding:5px 10px;' +
+        'border:1px solid ' + (c.stream ? '#0a7d2c' : '#cbd5e1') + ';border-radius:6px;font-size:11.5px;' +
+        'cursor:pointer;background:#fff;color:' + (c.stream ? '#0a7d2c' : '#475569') + ';">' +
+        (c.stream ? '🎥 영상 있음' : '영상 주소') + '</button>' +
         (placed
           ? '<button class="pcOn" data-k="' + escapeAttr(c.key) + '" style="flex:0 0 auto;padding:5px 10px;border:none;' +
             'border-radius:6px;font-size:11.5px;cursor:pointer;background:' + (c.on ? '#0a7d2c' : '#e2e8f0') +
@@ -5711,6 +5732,35 @@
   function bindParkCamAdmin() {
     Array.prototype.forEach.call(document.querySelectorAll('#modalBody .pcPlace'), function(b) {
       b.addEventListener('click', function() { startParkPlacing(b.getAttribute('data-k')); });
+    });
+    // 영상 주소 넣기. 짐작으로 채우지 않는다 - 페이지 번호와 영상 번호가 다른 것을
+    // 실제로 확인했다(cctv_05.html 이 cctv03.stream 을 쓴다). 화면을 본 사람이 넣는다.
+    Array.prototype.forEach.call(document.querySelectorAll('#modalBody .pcStream'), function(b) {
+      b.addEventListener('click', function() {
+        var k = b.getAttribute('data-k');
+        var cam = parkCamByKey(k);
+        if (!cam) return;
+        var cur = cam.stream || '';
+        var v = window.prompt(
+          cam.title + '\n\n이 카메라의 영상 주소(.m3u8)를 넣으세요.\n' +
+          '비우고 확인을 누르면 링크 방식으로 되돌아갑니다.\n\n' +
+          '※ https 로 시작해야 합니다. http 는 우리 사이트(https)에서 막힙니다.', cur);
+        if (v === null) return;                       // 취소
+        v = String(v).trim();
+        if (v && !/^https:\/\//i.test(v)) {
+          alert('https 로 시작하는 주소만 쓸 수 있습니다.\n\nhttp 주소는 브라우저가 막아서 화면이 안 나옵니다.');
+          return;
+        }
+        var st = parkCamState[k] || {};
+        if (v) st.stream = v; else delete st.stream;
+        parkCamState[k] = st;
+        saveParkCams(function(ok) {
+          if (!ok) return;
+          showStatus(v ? '🎥 영상 주소를 저장했습니다. 이제 우리 화면에서 재생합니다.'
+                       : '링크 방식으로 되돌렸습니다.');
+          renderAdminConsole();
+        });
+      });
     });
     Array.prototype.forEach.call(document.querySelectorAll('#modalBody .pcOn'), function(b) {
       b.addEventListener('click', function() {
