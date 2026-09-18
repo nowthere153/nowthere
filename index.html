@@ -2423,6 +2423,60 @@
   // 둘이면 싸움이고 셋이면 판단이다. 그리고 모순을 사용자에게 떠넘기지 않고
   // 우리가 한 문장으로 결론을 낸다 - 기상청은 자료를 주고 해석은 주지 않는다.
   // 해석까지 주는 것이 우리가 더 할 수 있는 일이다.
+  // 누른 자리에 실제로 색이 칠해져 있는지 읽는다.
+  // 화면에 깔린 조각은 그대로 두고(거기에 crossOrigin을 걸면 CORS가 없는 제공처에서
+  // 그림 자체가 안 뜬다), 판정할 때만 같은 조각을 한 장 더 받아 캔버스에 올려 본다.
+  // 읽을 수 없으면(제공처가 CORS를 안 열어둔 경우) null을 돌려준다 - 모르는 것을
+  // 아는 척하지 않기 위해서다.
+  // cb(null 모름 · 0 색 없음 · 1~255 색 있음(진할수록 큼))
+  function radarEchoAt(lat, lng, cb) {
+    if (!radarOn || !radarTemplate) { cb(null); return; }
+    var z = radarZoomFor();
+    var fx = lngToTileX(lng, z), fy = latToTileY(lat, z);
+    var tx = Math.floor(fx), ty = Math.floor(fy);
+    var px = Math.floor((fx - tx) * 256), py = Math.floor((fy - ty) * 256);
+    var img = new Image();
+    img.crossOrigin = 'anonymous';
+    var done = false;
+    var timer = setTimeout(function() { if (!done) { done = true; cb(null); } }, 6000);
+    img.onload = function() {
+      if (done) return;
+      done = true; clearTimeout(timer);
+      try {
+        var c = document.createElement('canvas');
+        c.width = 256; c.height = 256;
+        var ctx = c.getContext('2d');
+        ctx.drawImage(img, 0, 0);
+        // 딱 한 점만 보면 우연에 좌우된다. 누른 자리 둘레를 조금 넓게 본다
+        // (z7에서 한 픽셀은 약 1km라, ±3픽셀이면 대략 그 동네다).
+        var r = 3;
+        var x0 = Math.max(0, px - r), y0 = Math.max(0, py - r);
+        var w = Math.min(256, px + r + 1) - x0, h = Math.min(256, py + r + 1) - y0;
+        var d = ctx.getImageData(x0, y0, w, h).data;
+        var maxA = 0;
+        for (var k = 3; k < d.length; k += 4) if (d[k] > maxA) maxA = d[k];
+        cb(maxA);
+      } catch (e) {
+        cb(null);   // 캔버스가 오염됨 = 읽을 권한이 없음
+      }
+    };
+    img.onerror = function() { if (!done) { done = true; clearTimeout(timer); cb(null); } };
+    img.src = radarTemplate.replace('{z}', z).replace('{x}', tx).replace('{y}', ty);
+  }
+
+  // ---------------------------------------------------------------------------
+  // 판정 카드 (2026-09-10 · 2026-09-18 경우별로 나눔)
+  // ---------------------------------------------------------------------------
+  // 레이더 옆에 카메라를 붙이면 사용자는 둘을 재판에 부친다. 그런데 이 재판은
+  // 공정하지 않다 - 카메라는 눈으로 보는 강한 증거이고 레이더는 추상적인 색이라,
+  // 맞붙이면 늘 카메라가 이긴다. 게다가 카메라는 "비가 온다"는 증명할 수 있어도
+  // "비가 안 온다"는 증명하지 못한다. 그래서 둘만 놓으면 "레이더가 가짜"라는
+  // 틀린 결론이 구조적으로 나온다. 심판을 하나 더 부른다 - 기상청 실황.
+  //
+  // ⚠️ 2026-09-18: 처음에는 실황만 보고 두 갈래로 갈랐더니, 색이 아예 없는 자리에도
+  // "하늘엔 있지만 땅까지는 오지 않는다"고 말했다. 그 자리엔 하늘에도 없었다.
+  // 맞는 설명을 아무 데나 붙이면 틀린 정보가 된다. 이제 두 가지를 함께 본다 -
+  // 누른 자리에 색이 있는가(레이더), 그리고 그 자리에 비가 오는가(기상청).
   function injectRadarVerdict(lat, lng) {
     var body = document.getElementById('modalBody');
     if (!body || !CCTV_PROXY_BASE_URL) return;
@@ -2430,36 +2484,68 @@
     holder.id = 'radarVerdict';
     holder.style.cssText = 'margin:0 0 10px;padding:10px 12px;border-radius:9px;' +
       'background:#f1f5f9;color:#475569;font-size:12.5px;line-height:1.65;';
-    holder.textContent = '레이더와 실제를 맞춰보는 중…';
+    holder.textContent = '이 자리의 지금을 맞춰보는 중…';
     body.insertBefore(holder, body.firstChild);
+
+    var sat = (radarMode === 'satellite');
+    var echo = undefined, obs = undefined;
+    function tryRender() {
+      if (echo === undefined || obs === undefined || !holder.isConnected) return;
+      var hasEcho = (echo === null) ? null : (echo > 12);   // 아주 옅은 잡티는 색으로 치지 않는다
+      var raining = !!(obs && obs.raining);
+      var head, sub, tone = '#475569', bg = '#f8fafc';
+
+      if (sat) {
+        // 위성은 구름을 본다. 비 여부와 직접 이어지지 않으므로 따로 말한다.
+        if (hasEcho === true && raining) { head = '☁️ 구름이 끼어 있고, 비도 옵니다'; tone = '#1d4ed8'; bg = '#eff6ff';
+          sub = '위성에 구름이 잡히고 기상청 관측도 비를 말합니다.'; }
+        else if (hasEcho === true) { head = '☁️ 구름은 있지만 비는 오지 않습니다';
+          sub = '위성은 구름 꼭대기를 봅니다. 구름이 있다고 비가 오는 것은 아닙니다.'; }
+        else if (hasEcho === false && raining) { head = '🌧️ 비가 옵니다'; tone = '#1d4ed8'; bg = '#eff6ff';
+          sub = '이 자리 위성 화면은 비어 있지만 기상청 관측은 비를 말합니다. 낮은 구름은 위성에 옅게 잡힙니다.'; }
+        else if (hasEcho === false) { head = '🌤️ 구름도 비도 없습니다';
+          sub = '위성에도 잡히는 구름이 없고, 기상청 관측으로도 강수가 없습니다.'; }
+        else { head = raining ? '🌧️ 지금 여기 비가 옵니다' : '🌤️ 지금 여기는 비가 오지 않습니다'; tone = raining ? '#1d4ed8' : '#475569'; bg = raining ? '#eff6ff' : '#f8fafc';
+          sub = '기상청 관측 기준입니다.'; }
+      } else if (hasEcho === true && raining) {
+        head = '🌧️ 지금 여기 비가 옵니다'; tone = '#1d4ed8'; bg = '#eff6ff';
+        sub = '레이더도, 기상청 관측도 비를 말합니다.' + (obs.rain1h ? ' 시간당 ' + obs.rain1h + 'mm.' : '') +
+              ' <b>카메라 화면에 잘 안 보이더라도 실제로 내리고 있습니다.</b>';
+      } else if (hasEcho === true && !raining) {
+        head = '🌤️ 하늘엔 있지만, 땅까지는 오지 않고 있어요';
+        sub = '레이더는 <b>하늘 중간 높이</b>를 봅니다. 거기 물방울이 있어도 땅에 닿기 전에 ' +
+              '마르는 일이 흔합니다. 기상청 관측으로도 지금 이 자리는 강수가 없습니다 — ' +
+              '<b>레이더가 틀린 것이 아니라 서로 다른 높이를 보고 있는 것</b>입니다.';
+      } else if (hasEcho === false && raining) {
+        head = '🌧️ 레이더에 잡히지 않는 약한 비가 내립니다'; tone = '#1d4ed8'; bg = '#eff6ff';
+        sub = '이 자리 레이더 화면은 비어 있는데 기상청 관측은 비를 말합니다.' +
+              (obs.rain1h ? ' 시간당 ' + obs.rain1h + 'mm.' : '') +
+              ' 아주 약한 비나 낮게 깔린 비는 레이더가 놓치기도 합니다.';
+      } else if (hasEcho === false) {
+        head = '🌤️ 지금 여기는 비가 없습니다';
+        sub = '레이더 화면도 이 자리는 비어 있고, 기상청 관측으로도 강수가 없습니다. 두 자료가 같은 말을 합니다.';
+      } else {
+        // 색을 읽지 못한 경우 - 아는 것만 말한다
+        head = raining ? '🌧️ 지금 여기 비가 옵니다' : '🌤️ 지금 여기는 비가 오지 않습니다';
+        tone = raining ? '#1d4ed8' : '#475569'; bg = raining ? '#eff6ff' : '#f8fafc';
+        sub = raining
+          ? '기상청 관측 기준입니다.' + (obs.rain1h ? ' 시간당 ' + obs.rain1h + 'mm.' : '')
+          : '기상청 관측 기준입니다. 화면에 색이 칠해져 있다면 그것은 하늘 중간 높이의 물방울이며, 땅에 닿기 전에 마르는 중일 수 있습니다.';
+      }
+
+      holder.innerHTML = '<div style="font-weight:800;color:' + tone + ';margin-bottom:3px;">' + head + '</div>' +
+        '<div>' + sub + '</div>' +
+        '<div style="margin-top:6px;font-size:11.5px;color:#94a3b8;">' +
+        (sat ? '위성(구름)' : '레이더(하늘)') + ' · 기상청 관측(땅) · 카메라(눈) 세 가지를 맞춰본 결과입니다.' +
+        (isAdmin && echo !== null ? ' <span style="opacity:.7">[색 ' + echo + ']</span>' : '') + '</div>';
+      holder.style.background = bg;
+    }
+
+    radarEchoAt(lat, lng, function(v) { echo = v; tryRender(); });
     fetch(CCTV_PROXY_BASE_URL + '/api/weather-now?lat=' + encodeURIComponent(lat) + '&lng=' + encodeURIComponent(lng))
       .then(function(r) { if (!r.ok) throw new Error('HTTP ' + r.status); return r.json(); })
-      .then(function(w) {
-        if (!holder.isConnected) return;
-        var head, sub, tone;
-        if (w.raining) {
-          tone = '#1d4ed8';
-          head = '🌧️ 지금 여기 비가 옵니다';
-          sub = '레이더도, 기상청 관측도 비를 말합니다.' +
-                (w.rain1h ? ' 시간당 ' + w.rain1h + 'mm.' : '') +
-                ' 카메라 화면에 잘 안 보이더라도 실제로 내리고 있습니다.';
-        } else {
-          tone = '#475569';
-          head = '🌤️ 하늘엔 있지만, 땅까지는 오지 않고 있어요';
-          sub = '레이더는 <b>하늘 중간 높이</b>를 봅니다. 거기 물방울이 있어도 ' +
-                '땅에 닿기 전에 마르는 일이 흔합니다. 기상청 관측으로도 지금 이 자리는 ' +
-                '강수가 없습니다 — <b>레이더가 틀린 것이 아니라 서로 다른 높이를 보고 있는 것</b>입니다.';
-        }
-        holder.innerHTML = '<div style="font-weight:800;color:' + tone + ';margin-bottom:3px;">' + head + '</div>' +
-          '<div>' + sub + '</div>' +
-          '<div style="margin-top:6px;font-size:11.5px;color:#94a3b8;">레이더(하늘) · 기상청 관측(땅) · 카메라(눈) 세 가지를 맞춰본 결과입니다.</div>';
-        holder.style.background = w.raining ? '#eff6ff' : '#f8fafc';
-      })
-      .catch(function() {
-        if (!holder.isConnected) return;
-        holder.innerHTML = '<div>레이더는 <b>하늘 중간 높이</b>를 봅니다. 카메라에 비가 안 보여도 ' +
-          '틀린 것이 아니라, 땅에 닿기 전에 마르고 있는 경우가 많습니다.</div>';
-      });
+      .then(function(w) { obs = w || {}; tryRender(); })
+      .catch(function() { obs = {}; tryRender(); });
   }
 
   function applyPlacingAt(pos) {
