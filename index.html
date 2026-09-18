@@ -93,6 +93,39 @@
     box-shadow: 0 2px 8px rgba(0,0,0,0.2);
   }
   #searchHint.hide { display: none; }
+  /* 기록이 없는 자리의 초대 (2026-09-18)
+     지금까지 "남긴 것이 없음"은 그냥 아무것도 없는 상태였다. 없음을 감추지 않고
+     초대로 쓴다 - 비어 있다는 사실 자체가 첫 번째가 될 자리라는 뜻이기 때문이다.
+     검색 안내와 같은 자리를 쓰되 둘이 동시에 뜨지는 않게 한다(잔소리 두 줄 금지). */
+  #emptyInvite {
+    position: absolute; top: 112px; left: 50%; transform: translateX(-50%);
+    z-index: 9; display: none; align-items: center; gap: 9px;
+    background: rgba(17,24,39,0.80); color: #fff;
+    padding: 6px 8px 6px 13px; border-radius: 14px; font-size: 11.5px; line-height: 1.45;
+    max-width: min(460px, calc(100% - 24px));
+    box-shadow: 0 2px 8px rgba(0,0,0,0.2);
+  }
+  #emptyInvite.show { display: flex; }
+  /* 산·해안 카메라 자리 잡기 안내. 등록 배너와 같은 자리·같은 생김새를 쓴다 -
+     하는 일이 같기 때문이다(지도를 눌러 한 자리를 정한다). */
+  #parkPlaceBar {
+    display: none; position: absolute; bottom: 92px; left: 50%; transform: translateX(-50%);
+    z-index: 15; background: #0f766e; color: #fff; padding: 11px 12px 11px 16px; border-radius: 16px;
+    box-shadow: 0 2px 10px rgba(0,0,0,0.3); text-align: left;
+    width: max-content; max-width: calc(100% - 24px); align-items: center; gap: 12px;
+  }
+  #parkPlaceBar.show { display: flex; }
+  #parkPlaceBar button {
+    flex: 0 0 auto; border: none; border-radius: 10px; padding: 7px 12px;
+    background: rgba(255,255,255,0.18); color: #fff; font-size: 12px; cursor: pointer;
+  }
+  #emptyInvite button {
+    flex: 0 0 auto; border: none; border-radius: 10px; padding: 5px 11px;
+    background: #fff; color: #111827; font-size: 11.5px; font-weight: 700; cursor: pointer;
+  }
+  #emptyInvite .eiClose {
+    background: transparent; color: #cbd5e1; font-size: 14px; padding: 2px 4px; font-weight: 400;
+  }
   #searchInput {
     flex: 1; min-width: 0; padding: 10px 4px; border: none; font-size: 15px; outline: none;
     background: transparent;
@@ -519,6 +552,18 @@
   <button id="searchBtn">지금 보기</button>
 </div>
 <div id="searchHint">지명을 넣으면 그곳으로 지도가 옮겨가고, 주변 CCTV와 날씨를 함께 보여드려요</div>
+<div id="parkPlaceBar">
+  <div style="min-width:0;">
+    <div id="parkPlaceMsg" style="font-size:13px;font-weight:700;"></div>
+    <div style="font-size:11.5px;color:#cbd5e1;margin-top:2px;">화면에 보이는 그곳을 누르세요 · 검색으로 그 지역까지 옮길 수 있어요</div>
+  </div>
+  <button type="button" id="parkPlaceCancel">그만두기</button>
+</div>
+<div id="emptyInvite">
+  <span style="flex:1 1 auto;min-width:0;">이 근처엔 아직 남긴 영상이 없어요</span>
+  <button type="button" id="emptyInviteBtn">첫 번째가 되기</button>
+  <button type="button" class="eiClose" id="emptyInviteClose" aria-label="닫기">×</button>
+</div>
 
 <!-- ⚠️ 2026-09-09 개편: 세 칸을 두 칸으로 줄인다.
      세 칸의 성격이 서로 달랐다 - "내 영상을 지도에"는 이 사이트의 주 행동이고,
@@ -627,7 +672,7 @@
   // 생기면 재사용 가능) index.html에서는 호출하지 않음.
   // 배포된 파일이 최신인지 콘솔에서 한 줄로 확인하기 위한 표시.
   // 같은 이유로 여러 번 헛돌아서(옛 파일이 올라간 줄 모르고 디버깅) 넣어둠.
-  var NOWTHERE_VERSION = 'v2026-09-18d (남긴 것은 사진 핀으로)';
+  var NOWTHERE_VERSION = 'v2026-09-18e (남긴 직후 화면 · 빈자리 초대 · 산해안 카메라)';
   console.log('[NowThere] ' + NOWTHERE_VERSION);
 
   var CCTV_PROXY_BASE_URL = 'https://api.nowthere.net';
@@ -1348,6 +1393,9 @@
       myOwnerId = user.uid;
       myOwnerIds = user.uid === legacyOwnerId ? [user.uid] : [user.uid, legacyOwnerId];
       isAdmin = !user.isAnonymous;
+      // 관리자에게는 비공개 산·해안 카메라도 흐리게 보여야 한다. 자기가 찍은 자리를
+      // 못 보면 확인할 방법이 없다.
+      if (typeof drawParkCams === 'function') drawParkCams();
       if (isAdmin) showStatus('🔑 관리자 모드로 전환되었습니다.');
     }
     // ⚠️ 2026-09: 예전에는 여기서 마지막 스냅샷을 다시 그렸다. 이제는 "내 것" 구독 자체를
@@ -2095,6 +2143,7 @@
 
     liveSpots = sampleSpots.concat(sharedSpots); // 거리 매칭 대상 갱신
     applyFilter(); // 새로 들어온 공유 스팟에도 현재 필터 상태 적용
+    if (typeof refreshEmptyInvite === 'function') refreshEmptyInvite();
     renderFilterBar(); // 카테고리별 등록 건수 배지 갱신 (ID 66)
     resolvePendingShareSpot(); // 공유 링크로 접속했다면 첫 데이터 로드 시 자동으로 열기
   }
@@ -2717,6 +2766,8 @@
   }
 
   function enterPlacingMode() {
+    // 등록 중에는 초대를 감춘다(하고 있는 일을 다시 권하지 않는다).
+    setTimeout(function(){ if (typeof refreshEmptyInvite === 'function') refreshEmptyInvite(); }, 0);
     placingMode = true;
     document.getElementById('placingBanner').classList.add('show');
     var b = document.getElementById('locateBtn');
@@ -2728,6 +2779,8 @@
   });
 
   function exitPlacingMode() {
+    // 등록 중에는 초대를 감춘다(하고 있는 일을 다시 권하지 않는다).
+    setTimeout(function(){ if (typeof refreshEmptyInvite === 'function') refreshEmptyInvite(); }, 0);
     placingMode = false;
     document.getElementById('placingBanner').classList.remove('show');
     var b2 = document.getElementById('locateBtn');
@@ -5025,6 +5078,12 @@
     if (data && typeof data.radarLook === 'number' && data.radarLook >= 0 && data.radarLook <= 2) {
       radarLook = Math.round(data.radarLook);
     }
+    // 산·해안 카메라의 자리와 공개 여부. 좌표는 사람이 눈으로 확인해 넣은 값이므로
+    // 우리가 임의로 채우거나 고치지 않는다.
+    if (data && data.parkCams && typeof data.parkCams === 'object') {
+      parkCamState = data.parkCams;
+      if (typeof drawParkCams === 'function') drawParkCams();
+    }
     // 관리자가 한 번 재서 저장해 둔 색인. 색상표 번호를 열쇠로 쓴다.
     // 없으면 없는 대로 둔다 - 사용자 쪽에서 펼칠 때 그 자리에서 재본다.
     if (data && data.radarScale && typeof data.radarScale === 'object') {
@@ -5206,7 +5265,62 @@
   // 대해서만 나갑니다).
   mapOnIdle(function() {
     if (cctvVisible) loadCctvMarkers();
+    refreshEmptyInvite();
   });
+
+  // ---------------------------------------------------------------------------
+  // 기록 없는 자리의 초대 (2026-09-18)
+  // ---------------------------------------------------------------------------
+  // 뜨지 않아야 할 자리를 먼저 정한다. 초대는 자주 뜨면 잔소리가 되고, 잔소리는
+  // 초대의 반대말이다.
+  //  · 지도가 너무 넓으면 안 뜬다 — "이 근처"라는 말이 뜻을 잃는다.
+  //  · 등록 중이면 안 뜬다 — 이미 하고 있는 일을 다시 권하지 않는다.
+  //  · 검색 안내가 떠 있으면 안 뜬다 — 같은 자리에 두 줄이 겹친다.
+  //  · 한 번 닫으면 이 접속 동안 다시 뜨지 않는다.
+  var emptyInviteDismissed = false;
+  var EMPTY_INVITE_MAX_LEVEL = 8;   // 카카오 레벨은 작을수록 가깝다
+
+  function refreshEmptyInvite() {
+    var el = document.getElementById('emptyInvite');
+    if (!el) return;
+    function hide() { el.classList.remove('show'); }
+    if (emptyInviteDismissed || placingMode) return hide();
+    if (mapGetLevel() > EMPTY_INVITE_MAX_LEVEL) return hide();
+    var hint = document.getElementById('searchHint');
+    if (hint && !hint.classList.contains('hide')) return hide();
+    var modalEl = document.getElementById('modal');
+    if (modalEl && modalEl.classList.contains('show')) return hide();
+
+    var b = mapGetBounds();
+    var seen = 0;
+    liveSpots.forEach(function(s) {
+      if (seen) return;
+      if (!s.marker) return;                       // 숨김·보관은 지도에 없다
+      if (!passesFilter(s)) return;                // 걸러져 안 보이는 것은 없는 것과 같다
+      if (s.lat == null || s.lng == null) return;
+      if (s.lng >= b.minX && s.lng <= b.maxX && s.lat >= b.minY && s.lat <= b.maxY) seen++;
+    });
+    if (seen) return hide();
+    el.classList.add('show');
+  }
+
+  (function initParkPlaceBar() {
+    var x = document.getElementById('parkPlaceCancel');
+    if (x) x.addEventListener('click', stopParkPlacing);
+  })();
+
+  (function initEmptyInvite() {
+    var go = document.getElementById('emptyInviteBtn');
+    if (go) go.addEventListener('click', function() {
+      document.getElementById('emptyInvite').classList.remove('show');
+      if (!placingMode) enterPlacingMode();
+    });
+    var x = document.getElementById('emptyInviteClose');
+    if (x) x.addEventListener('click', function() {
+      emptyInviteDismissed = true;
+      document.getElementById('emptyInvite').classList.remove('show');
+    });
+  })();
 
   // ================================================================
   // 관리자 콘솔 (ID19 확장 / ID69 / ID64 일부)
@@ -5255,6 +5369,202 @@
         btn('cAdmDel', '삭제', '#fff', '#b91c1c', '1px solid #fecaca') +
         '</div></div>';
     }).join('');
+  }
+
+
+  // ---------------------------------------------------------------------------
+  // 산·해안 카메라 (국립공원공단) — 좌표를 손으로 확정한다 (2026-09-18)
+  // ---------------------------------------------------------------------------
+  // ⚠️ 이 소스는 좌표를 주지 않는다. 우리가 받는 것은 이름과 페이지 주소뿐이고,
+  // 게다가 이름이 카메라가 "선" 자리인지 "보는" 대상인지도 알 수 없다.
+  // 그런데 열일곱 개뿐이다 - 자동으로 풀 문제가 아니라 손으로 확정할 문제다.
+  // 관리자가 화면을 열어 보고 지도에서 한 번 눌러 정한다. 우리는 모르는 것을
+  // 추측해서 채우지 않고, 아는 사람이 넣어준 것만 갖는다.
+  //
+  // ⚠️ 지금은 링크 방식이다 - 우리 화면에 영상을 싣지 않고 제공처 페이지를 새 탭으로
+  // 연다. 영상을 우리 화면에 올려도 되는지는 아직 정해지지 않았다(OP-12). 링크는
+  // 그 판단 없이도 지금 할 수 있고, 판단이 난 뒤에 바꿔도 좌표는 그대로 쓴다.
+  //
+  // ⚠️ 자리를 잡아도 기본은 비공개다. 공개로 바꾸기 전에는 일반 사용자에게 보이지
+  // 않는다 - 잘못 찍은 자리가 곧바로 남에게 보이면 되돌리는 값이 커진다.
+  var PARK_CAM_SEED = [
+    { k: 'knps4',  t: '북한산국립공원(백운대)',       u: 'https://www.knps.or.kr/common/cctv/cctv4.do' },
+    { k: 'knps5',  t: '소백산국립공원(연화봉)',       u: 'https://www.knps.or.kr/common/cctv/cctv5.do' },
+    { k: 'knps10', t: '덕유산국립공원(설천봉)',       u: 'https://www.knps.or.kr/common/cctv/cctv10.do' },
+    { k: 'knps22', t: '태안해안국립공원(학암포)',     u: 'https://www.knps.or.kr/common/cctv/cctv22.do' },
+    { k: 'knps21', t: '변산반도국립공원(죽막탐방로)', u: 'https://www.knps.or.kr/common/cctv/cctv21.do' },
+    { k: 'jiri1',  t: '지리산국립공원(장터목)',       u: '' },
+    { k: 'jiri2',  t: '지리산국립공원(천왕봉)',       u: '' },
+    { k: 'knps3',  t: '설악산국립공원(울산바위)',     u: 'https://www.knps.or.kr/common/cctv/cctv3.do' },
+    { k: 'knps11', t: '오대산국립공원(두로령)',       u: 'https://www.knps.or.kr/common/cctv/cctv11.do' },
+    { k: 'knps6',  t: '태백산국립공원(천제단)',       u: 'https://www.knps.or.kr/common/cctv/cctv6.do' },
+    { k: 'knps9',  t: '주왕산국립공원(기암)',         u: 'https://www.knps.or.kr/common/cctv/cctv9.do' },
+    { k: 'knps13', t: '한려해상국립공원(각산)',       u: 'https://www.knps.or.kr/common/cctv/cctv13.do' },
+    { k: 'knps12', t: '다도해해상국립공원(지리청송해변)', u: 'https://www.knps.or.kr/common/cctv/cctv12.do' },
+    { k: 'knps14', t: '북한산국립공원(사패산)',       u: 'https://www.knps.or.kr/common/cctv/cctv14.do' },
+    { k: 'knps15', t: '무등산국립공원(장불재)',       u: 'https://www.knps.or.kr/common/cctv/cctv15.do' },
+    { k: 'knps16', t: '계룡산국립공원(천황봉)',       u: 'https://www.knps.or.kr/common/cctv/cctv16.do' },
+    { k: 'knps17', t: '치악산국립공원(상원사)',       u: 'https://www.knps.or.kr/common/cctv/cctv17.do' }
+  ];
+  var PARK_CAM_PROVIDER = '국립공원공단';
+  var parkCamState = {};      // key -> { lat, lng, on }  · config/settings.parkCams
+  var parkCamMarkers = [];
+  var parkPlacingKey = null;
+
+  function parkCamsAll() {
+    return PARK_CAM_SEED.map(function(s) {
+      var st = parkCamState[s.k] || {};
+      return {
+        key: s.k, title: s.t, url: s.u || '',
+        lat: (typeof st.lat === 'number') ? st.lat : null,
+        lng: (typeof st.lng === 'number') ? st.lng : null,
+        on: st.on === true
+      };
+    });
+  }
+  function parkCamByKey(key) {
+    var found = parkCamsAll().filter(function(c) { return c.key === key; });
+    return found[0] || null;
+  }
+  function saveParkCams(cb) {
+    db.collection('config').doc('settings').set({ parkCams: parkCamState }, { merge: true })
+      .then(function() { if (cb) cb(true); })
+      .catch(function(err) { alert('저장 실패: ' + err.message); if (cb) cb(false); });
+  }
+
+  // 지도에 올리기. 공개로 바꾼 것 중 자리가 잡힌 것만 올린다. 관리자에게는
+  // 비공개도 흐리게 보여준다 - 자기가 방금 찍은 자리를 못 보면 확인할 방법이 없다.
+  function drawParkCams() {
+    parkCamMarkers.forEach(mapRemoveMarker);
+    parkCamMarkers = [];
+    parkCamsAll().forEach(function(c) {
+      if (c.lat == null || c.lng == null) return;
+      if (!c.on && !isAdmin) return;
+      var m = mapCreateParkMarker(c);
+      if (m) parkCamMarkers.push(m);
+    });
+  }
+
+  // 산·해안 카메라 핀. CCTV와도, 남긴 기록과도 달라야 한다 - 도로가 아니고, 지금이다.
+  function mapCreateParkMarker(cam) {
+    if (!(window.kakao && kakao.maps && kakao.maps.CustomOverlay)) return null;
+    var el = document.createElement('div');
+    var dim = (!cam.on && isAdmin);
+    el.style.cssText = 'position:relative;display:flex;align-items:center;gap:5px;' +
+      'padding:4px 9px 4px 6px;border-radius:14px;cursor:pointer;white-space:nowrap;' +
+      'background:' + (dim ? 'rgba(15,118,110,0.45)' : '#0f766e') + ';color:#fff;' +
+      'font-size:11.5px;font-weight:700;border:2px solid #fff;' +
+      'box-shadow:0 2px 6px rgba(0,0,0,0.3);';
+    el.innerHTML = '<svg viewBox="0 0 16 16" width="13" height="13" aria-hidden="true">' +
+      '<path d="M1 13.5L6 4l3 5 1.6-2.6L15 13.5z" fill="#fff"/></svg>' +
+      '<span>' + escapeHtml(shortParkName(cam.title)) + (dim ? ' (비공개)' : '') + '</span>';
+    el.addEventListener('click', function(e) { e.stopPropagation(); openParkCamModal(cam); });
+    return new kakao.maps.CustomOverlay({
+      position: mapLatLng(cam.lat, cam.lng), content: el, map: map,
+      yAnchor: 0.5, zIndex: 3, clickable: true
+    });
+  }
+  // "설악산국립공원(울산바위)" → "울산바위". 핀 위에서는 괄호 안이 그 자리의 이름이다.
+  function shortParkName(title) {
+    var m = /\(([^)]+)\)\s*$/.exec(title || '');
+    return m ? m[1] : (title || '');
+  }
+
+  function openParkCamModal(cam) {
+    var body =
+      '<p style="margin:0 0 4px;font-size:15px;font-weight:700;color:#111827;">' + escapeHtml(cam.title) + '</p>' +
+      '<p style="margin:0 0 12px;font-size:11.5px;color:#94a3b8;">영상 제공 · ' + escapeHtml(PARK_CAM_PROVIDER) + '</p>' +
+      (cam.url
+        ? '<p style="font-size:12.5px;color:#475569;line-height:1.7;margin-bottom:12px;">' +
+          '이 화면은 제공처에서 직접 보여드립니다. 아래를 누르면 <b>' + escapeHtml(PARK_CAM_PROVIDER) + '</b> 페이지가 새 탭으로 열립니다.</p>' +
+          '<a href="' + escapeAttr(cam.url) + '" target="_blank" rel="noopener noreferrer" ' +
+          'style="display:block;text-align:center;padding:11px;border-radius:9px;background:#0f766e;color:#fff;' +
+          'font-size:13px;font-weight:700;text-decoration:none;">실시간 화면 보기 (새 탭)</a>'
+        : '<p style="font-size:12.5px;color:#b45309;line-height:1.7;">지금은 제공처에서 점검 중이라 열 수 있는 화면이 없습니다.</p>') +
+      (isAdmin && !cam.on
+        ? '<p style="margin-top:10px;font-size:11.5px;color:#94a3b8;">이 카메라는 아직 <b>비공개</b>입니다. 관리자에게만 보입니다.</p>' : '');
+    openModal('산·해안 카메라', body);
+  }
+
+  // ── 자리 잡기 ───────────────────────────────────────────────────────────────
+  function startParkPlacing(key) {
+    var cam = parkCamByKey(key);
+    if (!cam) return;
+    parkPlacingKey = key;
+    document.getElementById('modal').classList.remove('show');
+    document.getElementById('modalBody').innerHTML = '';
+    var bar = document.getElementById('parkPlaceBar');
+    var msg = document.getElementById('parkPlaceMsg');
+    if (msg) msg.textContent = '⛰ ' + cam.title + '의 자리를 눌러주세요';
+    if (bar) bar.classList.add('show');
+  }
+  function stopParkPlacing() {
+    parkPlacingKey = null;
+    var bar = document.getElementById('parkPlaceBar');
+    if (bar) bar.classList.remove('show');
+  }
+  function applyParkPlacingAt(pos) {
+    var key = parkPlacingKey;
+    var cam = parkCamByKey(key);
+    stopParkPlacing();
+    if (!cam) return;
+    var st = parkCamState[key] || {};
+    st.lat = pos.lat; st.lng = pos.lng;
+    if (typeof st.on !== 'boolean') st.on = false;   // 자리를 잡아도 공개는 따로 정한다
+    parkCamState[key] = st;
+    saveParkCams(function(ok) {
+      if (!ok) return;
+      drawParkCams();
+      showStatus('⛰ ' + shortParkName(cam.title) + ' 자리를 저장했습니다 (아직 비공개)');
+      setTimeout(renderAdminConsole, 400);
+    });
+  }
+
+  // ── 관리자 콘솔 10번 표 ─────────────────────────────────────────────────────
+  function parkCamAdminRows() {
+    return parkCamsAll().map(function(c) {
+      var placed = (c.lat != null && c.lng != null);
+      var where = placed
+        ? '<span style="color:#0a7d2c;">' + c.lat.toFixed(4) + ', ' + c.lng.toFixed(4) + '</span>'
+        : '<span style="color:#b45309;">자리 없음</span>';
+      return '<div style="display:flex;align-items:center;gap:8px;padding:7px 0;border-bottom:1px solid #f1f5f9;flex-wrap:wrap;">' +
+        '<span style="flex:1 1 180px;min-width:0;font-size:12px;color:#334155;">' + escapeHtml(c.title) +
+        '<br><span style="font-size:11px;">' + where + '</span></span>' +
+        (c.url
+          ? '<a href="' + escapeAttr(c.url) + '" target="_blank" rel="noopener noreferrer" ' +
+            'style="flex:0 0 auto;padding:5px 10px;border:1px solid #cbd5e1;border-radius:6px;' +
+            'font-size:11.5px;color:#475569;text-decoration:none;background:#fff;">보기</a>'
+          : '<span style="flex:0 0 auto;font-size:11px;color:#b45309;">점검 중</span>') +
+        '<button class="pcPlace" data-k="' + escapeAttr(c.key) + '" style="flex:0 0 auto;padding:5px 10px;' +
+        'border:1px solid #cbd5e1;border-radius:6px;font-size:11.5px;cursor:pointer;background:#fff;color:#475569;">' +
+        (placed ? '자리 고치기' : '자리 잡기') + '</button>' +
+        (placed
+          ? '<button class="pcOn" data-k="' + escapeAttr(c.key) + '" style="flex:0 0 auto;padding:5px 10px;border:none;' +
+            'border-radius:6px;font-size:11.5px;cursor:pointer;background:' + (c.on ? '#0a7d2c' : '#e2e8f0') +
+            ';color:' + (c.on ? '#fff' : '#475569') + ';">' + (c.on ? '공개' : '비공개') + '</button>'
+          : '') +
+        '</div>';
+    }).join('');
+  }
+
+  function bindParkCamAdmin() {
+    Array.prototype.forEach.call(document.querySelectorAll('#modalBody .pcPlace'), function(b) {
+      b.addEventListener('click', function() { startParkPlacing(b.getAttribute('data-k')); });
+    });
+    Array.prototype.forEach.call(document.querySelectorAll('#modalBody .pcOn'), function(b) {
+      b.addEventListener('click', function() {
+        var k = b.getAttribute('data-k');
+        var st = parkCamState[k] || {};
+        st.on = !(st.on === true);
+        parkCamState[k] = st;
+        saveParkCams(function(ok) {
+          if (!ok) return;
+          drawParkCams();
+          showStatus(st.on ? '✅ 공개로 바꿨습니다.' : '비공개로 두었습니다.');
+          renderAdminConsole();
+        });
+      });
+    });
   }
 
   function renderAdminConsole() {
@@ -5395,6 +5705,19 @@
       conceptAdminRows() +
       '<button id="admConceptNew" style="margin-top:8px;border:none;border-radius:6px;padding:7px 12px;font-size:12px;cursor:pointer;background:#1f2937;color:#fff;">＋ 새 목록 만들기</button>' +
 
+      // ⚠️ 2026-09-18 신설. 국립공원공단이 주는 산·해안 카메라는 좌표가 없다 -
+      // 우리가 받는 것은 이름과 페이지 주소뿐이다. 게다가 이름이 카메라가 선 자리인지
+      // 카메라가 보는 대상인지도 알 수 없다(설악산 울산바위는 아마 보는 쪽이다).
+      // 그런데 열일곱 개뿐이다. 자동으로 풀 문제가 아니라 손으로 확정할 문제다.
+      // 화면을 한 번 열어보면 대부분 답이 나오고, 한 곳에 1~2분이면 끝난다.
+      '<div style="font-weight:700;margin:16px 0 6px;">10. 산·해안 카메라 (국립공원공단)</div>' +
+      '<div style="font-size:11.5px;color:#64748b;margin-bottom:8px;line-height:1.7;">' +
+      '좌표가 없는 소스입니다. <b>자리 잡기</b>를 누르면 콘솔이 닫히고, 지도에서 누른 자리가 그 카메라의 자리가 됩니다.<br>' +
+      '<b>보기</b>로 먼저 화면을 열어 확인하세요 — 이름이 카메라가 <b>선</b> 자리인지 <b>보는</b> 대상인지 그림을 봐야 압니다.<br>' +
+      '지금은 <b>링크 방식</b>입니다 — 우리 화면에 영상을 싣지 않고 제공처 페이지를 새 탭으로 엽니다. ' +
+      '자리를 잡아도 <b>공개</b>로 바꾸기 전에는 일반 사용자에게 보이지 않습니다.</div>' +
+      parkCamAdminRows() +
+
       '<div style="margin:18px 0 2px;padding-top:12px;border-top:1px solid #e2e8f0;">' +
       '<div style="font-size:11.5px;color:#94a3b8;margin-bottom:10px;">지금 이 화면의 판 번호 — <b style="color:#475569;">' + NOWTHERE_VERSION + '</b></div>' +
       '<button id="admLogoutBtn" style="padding:8px 14px;border-radius:8px;border:1px solid #ddd;background:#fff;color:#475569;cursor:pointer;font-size:13px;">관리자 로그아웃</button>' +
@@ -5402,6 +5725,7 @@
       '</div>';
 
     openModal('⚙️ 관리자 콘솔', body);
+    bindParkCamAdmin();
 
     // 6. 방문 현황 - 최근 7일치 일별 문서를 읽어 표로 그린다 (ID101)
     (function loadVisits() {
@@ -6167,6 +6491,9 @@
   mapOnClick(function(pos) {
     if (longPressTimer) { clearTimeout(longPressTimer); longPressTimer = null; } // 짧게 뗀 경우 롱프레스 타이머 취소
     if (suppressNextMapClick) { suppressNextMapClick = false; return; } // 롱프레스로 이미 처리된 클릭은 무시(ID 67)
+    // 산·해안 카메라 자리 잡기는 다른 무엇보다 먼저 받는다. 지금 이 클릭은 지도를
+    // 보려는 것이 아니라 "여기다"라고 말하는 것이다.
+    if (parkPlacingKey) { applyParkPlacingAt(pos); return; }
     // ⚠️ 2026-09-10 신설: 비구름이 켜져 있는 동안에는 지도를 누르면 그 자리의 CCTV가
     // 열린다. 레이더는 상공을 보고 카메라는 지상을 본다 - 둘을 이어붙이면 "저기 정말
     // 비 오나"를 그 자리에서 확인할 수 있다. 기상청에는 카메라가 없어 못 하는 일이고,
@@ -6389,15 +6716,134 @@
         // ⚠️ 2026-09(ID103 · IV-7): 예전 문구는 "(모두에게 공유됩니다)"였다. 헤더는
         // "나만 보기도 됩니다"라고 약속하는데 등록을 마치면 정반대를 통보하는 상태였다.
         // 이제 실제 저장 상태를 그대로 말한다.
-        showStatus(visibility === VISIBILITY.PUBLIC
-          ? '✅ "' + title + '" 공개로 등록했습니다. 지도에서 누구나 볼 수 있어요.'
-          : '✅ "' + title + '" 나만 보기로 저장했습니다. 공개하려면 내 기록에서 바꿔주세요.');
+        openRegisteredScreen(ref.id, {
+          id: ref.id, name: title, lat: newSpot.lat, lng: newSpot.lng,
+          type: newSpot.type, videoId: newSpot.videoId || null
+        }, visibility === VISIBILITY.PUBLIC);
       }).catch(function(err) {
         document.getElementById('placeHint').textContent = '등록 실패: ' + err.message;
         confirmBtn.disabled = false;
         confirmBtn.textContent = '등록하기';
       });
     });
+  }
+
+  // ---------------------------------------------------------------------------
+  // 남긴 직후 화면 (2026-09-18)
+  // ---------------------------------------------------------------------------
+  // ⚠️ 예전에는 등록을 마치면 창이 닫히고 아래에 한 줄이 떴다가 사라졌다. 남긴 사람이
+  // 받는 것이 없었고, 그 기록이 다음 사람에게 가는 길도 없었다.
+  // 여기서 두 가지를 돌려준다.
+  //  ① 그 자리의 "지금" — 내가 남긴 곳이 지금 어떤지. 본다와 남긴다가 곱해지는 것을
+  //     사용자가 눈으로 보는 첫 순간이고, 다시 올 이유도 여기서 생긴다. 내가 남긴
+  //     곳의 지금은 매일 다르다.
+  //  ② 그 자리의 링크 — 남긴 것이 퍼지는 실제 경로는 이것 하나뿐이다. 지금까지는
+  //     상세창 버튼 줄에 묻혀 있어서 아무도 쓰지 않았다.
+  // ⚠️ 나만 보기로 저장했으면 링크를 주지 않는다. 남이 열어도 안 보이는 링크를 주면
+  //    그것은 약속이 아니라 함정이다.
+  function openRegisteredScreen(spotId, spot, isPublic) {
+    var thumb = (spot.type === 'youtube') ? youtubeThumbUrl(spot.videoId) : '';
+    var body =
+      '<div style="text-align:center;margin-bottom:12px;">' +
+        (thumb ? '<img src="' + escapeAttr(thumb) + '" alt="" style="width:100%;max-width:300px;' +
+          'aspect-ratio:16/9;object-fit:cover;border-radius:10px;display:block;margin:0 auto 10px;">' : '') +
+        '<div style="font-size:16px;font-weight:800;color:#111827;">' + escapeHtml(spot.name) + '</div>' +
+        '<div style="margin-top:4px;font-size:12.5px;color:' + (isPublic ? '#0a7d2c' : '#64748b') + ';">' +
+          (isPublic ? '지도에 올렸습니다 · 누구나 볼 수 있어요' : '나만 보기로 저장했습니다') + '</div>' +
+      '</div>' +
+
+      // ① 그곳의 지금
+      '<div style="border:1px solid #e2e8f0;border-radius:10px;padding:10px 12px;margin-bottom:10px;">' +
+        '<div style="font-size:12.5px;font-weight:700;color:#334155;margin-bottom:7px;">' +
+        '🎥 내가 남긴 그곳 · 지금은</div>' +
+        '<div id="regNowBox" style="font-size:12.5px;color:#94a3b8;">가장 가까운 카메라를 찾는 중…</div>' +
+      '</div>' +
+
+      // ② 링크
+      (isPublic
+        ? '<div style="border:1px solid #e2e8f0;border-radius:10px;padding:10px 12px;margin-bottom:12px;">' +
+            '<div style="font-size:12.5px;font-weight:700;color:#334155;margin-bottom:3px;">🔗 이 자리 링크</div>' +
+            '<div style="font-size:11.5px;color:#94a3b8;margin-bottom:8px;line-height:1.6;">' +
+            '받은 사람은 이 자리가 열린 채로 지도를 봅니다.</div>' +
+            '<div style="display:flex;gap:6px;align-items:center;">' +
+            '<input id="regShareUrl" readonly value="' + escapeAttr(getSpotShareUrl(spot)) + '" ' +
+            'style="flex:1 1 auto;min-width:0;padding:7px 9px;border:1px solid #e2e8f0;border-radius:7px;' +
+            'font-size:11.5px;color:#475569;background:#f8fafc;">' +
+            '<button id="regCopyBtn" type="button" style="flex:0 0 auto;padding:8px 14px;border:none;' +
+            'border-radius:7px;background:#0a7d2c;color:#fff;font-size:12.5px;font-weight:700;cursor:pointer;">복사</button>' +
+            '</div></div>'
+        : '<div style="border:1px dashed #e2e8f0;border-radius:10px;padding:10px 12px;margin-bottom:12px;' +
+            'font-size:11.5px;color:#94a3b8;line-height:1.65;">' +
+            '나만 보기라서 나눌 링크는 만들지 않았습니다. 나중에 <b>내 기록</b>에서 공개로 바꾸면 그때 링크가 생깁니다.</div>') +
+
+      '<div style="display:flex;gap:8px;">' +
+        '<button id="regMineBtn" type="button" style="flex:1 1 0;padding:10px;border:1px solid #cbd5e1;' +
+        'border-radius:9px;background:#fff;color:#475569;font-size:13px;cursor:pointer;">내 기록 보기</button>' +
+        '<button id="regDoneBtn" type="button" style="flex:1 1 0;padding:10px;border:none;' +
+        'border-radius:9px;background:#111827;color:#fff;font-size:13px;font-weight:700;cursor:pointer;">지도로</button>' +
+      '</div>';
+
+    openModal('남겼습니다', body);
+
+    var copyBtn = document.getElementById('regCopyBtn');
+    if (copyBtn) copyBtn.addEventListener('click', function() {
+      var f = document.getElementById('regShareUrl');
+      if (f) { f.select(); }
+      copyToClipboard(getSpotShareUrl(spot));
+    });
+    var mineBtn = document.getElementById('regMineBtn');
+    if (mineBtn) mineBtn.addEventListener('click', function() { openMyRecords(); });
+    var doneBtn = document.getElementById('regDoneBtn');
+    if (doneBtn) doneBtn.addEventListener('click', function() {
+      document.getElementById('modal').classList.remove('show');
+      document.getElementById('modalBody').innerHTML = '';
+    });
+
+    // 가장 가까운 카메라. 사진이 있는 곳을 먼저 찾는다 - 이 화면에서는 "가장 가까운
+    // 그곳"보다 "지금이 보이는 그곳"이 중요하다. 여기서 빈 칸이 뜨면 이 화면의 뜻이
+    // 사라진다.
+    findNearestCctv(spot.lat, spot.lng, null, function(item) {
+      var box = document.getElementById('regNowBox');
+      if (!box) return;
+      if (!item) {
+        box.innerHTML = '<span style="color:#94a3b8;">이 근처에는 지금 볼 수 있는 카메라가 없습니다. ' +
+          '바다나 산이라면 그게 자연스러운 일입니다.</span>';
+        return;
+      }
+      var ilat = parseFloat(item.coordy), ilng = parseFloat(item.coordx);
+      var km = approxKmDistance(spot.lat, spot.lng, ilat, ilng);
+      var camName = item.cctvname || '가까운 카메라';
+      box.innerHTML =
+        (item.imageUrl
+          ? '<img id="regNowImg" src="' + escapeAttr(item.imageUrl) + '" alt="" style="width:100%;' +
+            'aspect-ratio:4/3;object-fit:cover;border-radius:8px;background:#eee;display:block;' +
+            'margin-bottom:6px;cursor:pointer;">'
+          : '') +
+        '<div style="display:flex;align-items:center;gap:6px;">' +
+        '<span style="flex:1 1 auto;min-width:0;font-size:12px;color:#475569;overflow:hidden;' +
+        'text-overflow:ellipsis;white-space:nowrap;">' + escapeHtml(camName) +
+        ' <span style="color:#94a3b8;">· ' + formatKmLabel(km) + ' 떨어짐</span></span>' +
+        '<button id="regNowBtn" type="button" style="flex:0 0 auto;padding:6px 11px;border:1px solid #cbd5e1;' +
+        'border-radius:7px;background:#fff;color:#475569;font-size:11.5px;cursor:pointer;">크게 보기</button>' +
+        '</div>';
+      function openIt() {
+        openCctvPopup({
+          name: spot.name + ' 주변 · ' + camName + ' (' + formatKmLabel(km) + ' 떨어짐)',
+          lat: ilat, lng: ilng,
+          imageUrl: item.imageUrl || '', streamUrl: item.cctvurl || '',
+          mp4Url: item.mp4Url || '', liveFirst: !!item.liveFirst, relayLive: !!item.relayLive,
+          ggResolve: !!item.ggResolve, streamResolve: item.streamResolve || '',
+          offerNm: item.offerNm || '', roadType: item.roadType || '',
+          maxSeconds: item.maxSeconds || 0
+        });
+        // 넘어갔으면 돌아올 수 있어야 한다(IV-14).
+        setModalBack(function() { openRegisteredScreen(spotId, spot, isPublic); }, '방금 남긴 것으로');
+      }
+      var nowBtn = document.getElementById('regNowBtn');
+      if (nowBtn) nowBtn.addEventListener('click', openIt);
+      var nowImg = document.getElementById('regNowImg');
+      if (nowImg) nowImg.addEventListener('click', openIt);
+    }, true);
   }
 
   // 4. 모달
