@@ -627,7 +627,7 @@
   // 생기면 재사용 가능) index.html에서는 호출하지 않음.
   // 배포된 파일이 최신인지 콘솔에서 한 줄로 확인하기 위한 표시.
   // 같은 이유로 여러 번 헛돌아서(옛 파일이 올라간 줄 모르고 디버깅) 넣어둠.
-  var NOWTHERE_VERSION = 'v2026-09-18c (판정 카드 단정 제거 · 색인 눈금)';
+  var NOWTHERE_VERSION = 'v2026-09-18d (남긴 것은 사진 핀으로)';
   console.log('[NowThere] ' + NOWTHERE_VERSION);
 
   var CCTV_PROXY_BASE_URL = 'https://api.nowthere.net';
@@ -1040,6 +1040,72 @@
     if (opts.onClick) kakao.maps.event.addListener(marker, 'click', opts.onClick);
     return marker;
   }
+  // ---------------------------------------------------------------------------
+  // 사진 핀 — 남긴 것은 CCTV와 다른 종으로 보여야 한다 (2026-09-18)
+  // ---------------------------------------------------------------------------
+  // ⚠️ 지도에 CCTV 핀이 약 16,000개, 남긴 기록이 십수 개인데 둘의 생김새가 같았다.
+  // 같은 종으로 보이면 십수 개는 없는 것과 같다. 숫자 문제이기 전에 생김새 문제다.
+  // 유튜브는 썸네일을 공짜로 준다(img.youtube.com/vi/<id>/mqdefault.jpg). 그걸 쓴다.
+  // 작은 사진 한 장은 회색 점 백 개보다 눈에 띈다 - 열 건만 있어도 지도가 달라진다.
+  //
+  // ⚠️ 왜 Marker가 아니라 CustomOverlay인가: 카카오 Marker의 그림은 이미지 한 장이라
+  // 데이터URL SVG 안에 외부 이미지를 끌어오는 수밖에 없는데, data: 로 만든 SVG는
+  // 브라우저가 외부 참조를 막는다(그려지지 않는다). CustomOverlay는 평범한 HTML을
+  // 받으므로 <img> 를 그대로 쓸 수 있다.
+  // CustomOverlay가 없는 환경이면 예전 핀으로 조용히 내려앉는다 - 새 모양을 못 쓰는 것과
+  // 핀이 아예 안 보이는 것은 다른 문제다.
+  function youtubeThumbUrl(videoId) {
+    if (!videoId || !/^[A-Za-z0-9_-]{6,20}$/.test(videoId)) return '';
+    return 'https://img.youtube.com/vi/' + videoId + '/mqdefault.jpg';
+  }
+
+  function mapCreateThumbMarker(lat, lng, opts) {
+    opts = opts || {};
+    if (!(window.kakao && kakao.maps && kakao.maps.CustomOverlay)) {
+      return mapCreateMarker(lat, lng, { color: opts.color || 'red', onClick: opts.onClick });
+    }
+    var tone = opts.color === 'blue' ? '#2563eb' : '#e11d48';
+    var el = document.createElement('div');
+    el.className = 'ntThumbPin';
+    el.style.cssText = 'position:relative;width:50px;height:50px;border-radius:12px;' +
+      'border:3px solid #fff;box-shadow:0 2px 7px rgba(0,0,0,0.35);overflow:hidden;' +
+      'background:' + tone + ';cursor:pointer;';
+    var thumb = opts.thumbUrl;
+    if (thumb) {
+      var img = document.createElement('img');
+      img.src = thumb;
+      img.alt = '';
+      img.style.cssText = 'width:100%;height:100%;object-fit:cover;display:block;';
+      // 썸네일이 없는 영상(비공개·삭제)이면 유튜브가 회색 이미지를 준다. 실패하면 도형만 남긴다.
+      img.onerror = function() { if (img.parentNode) img.parentNode.removeChild(img); };
+      el.appendChild(img);
+    }
+    // 오른쪽 아래 작은 재생 표시 - "이건 영상이다"를 한 글자도 쓰지 않고 말한다.
+    var play = document.createElement('span');
+    play.style.cssText = 'position:absolute;right:2px;bottom:2px;width:15px;height:15px;' +
+      'border-radius:50%;background:rgba(17,24,39,0.72);display:block;';
+    play.innerHTML = '<svg viewBox="0 0 12 12" width="15" height="15"><path d="M4.6 3.3l4 2.7-4 2.7z" fill="#fff"/></svg>';
+    el.appendChild(play);
+    // 꼬리 - 이 사진이 "이 자리"를 가리킨다는 것을 보이게 한다.
+    var tail = document.createElement('span');
+    tail.style.cssText = 'position:absolute;left:50%;bottom:-7px;margin-left:-5px;width:0;height:0;' +
+      'border-left:5px solid transparent;border-right:5px solid transparent;border-top:8px solid #fff;';
+    var wrap = document.createElement('div');
+    wrap.style.cssText = 'position:relative;';
+    wrap.appendChild(el);
+    wrap.appendChild(tail);
+    if (opts.onClick) el.addEventListener('click', function(e) { e.stopPropagation(); opts.onClick(); });
+
+    return new kakao.maps.CustomOverlay({
+      position: mapLatLng(lat, lng), content: wrap, map: map,
+      // 꼬리 끝이 좌표에 닿게 한다. 내용 상자는 50px이고 꼬리가 8px 더 내려가므로
+      // 8/50 = 0.16 만큼 더 올린다. 이 값이 틀리면 핀이 가리키는 자리가 어긋난다.
+      yAnchor: 1.16,
+      zIndex: 4,            // CCTV 마커 위
+      clickable: true       // 눌러도 지도 클릭(등록 모드·비구름 판정)으로 새지 않게
+    });
+  }
+
   function mapRemoveMarker(marker) { if (marker) marker.setMap(null); }
   // 마커를 지우지 않고 보이기/숨기기만 전환 (필터링 등에 사용)
   function mapSetMarkerVisible(marker, visible) { if (marker) marker.setMap(visible ? map : null); }
@@ -2015,8 +2081,11 @@
         sharedSpots.push(spot);
         return;
       }
-      var marker = mapCreateMarker(spot.lat, spot.lng, {
+      var marker = mapCreateThumbMarker(spot.lat, spot.lng, {
         color: spot.type === 'instagram' ? 'blue' : 'red',
+        // 인스타는 API 없이 썸네일을 가져올 수 없다. 그럴 땐 색만 있는 조각으로 둔다 -
+        // 사진이 없는 것과 핀이 없는 것은 다르다.
+        thumbUrl: spot.type === 'youtube' ? youtubeThumbUrl(spot.videoId) : '',
         onClick: function() { openSpotModal(spot); }
       });
       spot.marker = marker;
