@@ -612,7 +612,7 @@
   // 생기면 재사용 가능) index.html에서는 호출하지 않음.
   // 배포된 파일이 최신인지 콘솔에서 한 줄로 확인하기 위한 표시.
   // 같은 이유로 여러 번 헛돌아서(옛 파일이 올라간 줄 모르고 디버깅) 넣어둠.
-  var NOWTHERE_VERSION = 'v2026-09-10c (확대해도 사라지지 않게 · 격자 확인)';
+  var NOWTHERE_VERSION = 'v2026-09-18b (비구름이 지도와 함께 움직임)';
   console.log('[NowThere] ' + NOWTHERE_VERSION);
 
   var CCTV_PROXY_BASE_URL = 'https://api.nowthere.net';
@@ -4431,6 +4431,14 @@
     clearRadarDebugShapes();
     var proj = map.getProjection();
     if (!proj || typeof proj.containerPointFromCoords !== 'function') return;
+    // ⚠️ 2026-09-18: 전면으로 다시 그릴 때마다 "기준점"을 남긴다. 지도를 움직이는
+    // 동안에는 조각을 다시 그리지 않고, 이 기준점이 화면에서 얼마나 움직였는지만
+    // 재어 층 전체를 통째로 밀고 늘린다(radarLiveTransform 참고).
+    layer.style.transition = '';
+    layer.style.transform = '';
+    var cc = map.getCenter();
+    radarAnchor = { lat: cc.getLat(), lng: cc.getLng(), level: mapGetLevel(),
+                    pt: proj.containerPointFromCoords(cc) };
     var b = mapGetBounds();
     var z = radarZoomFor(), n = Math.pow(2, z);
     var x0 = Math.floor(lngToTileX(b.minX, z)), x1 = Math.floor(lngToTileX(b.maxX, z));
@@ -4501,13 +4509,46 @@
     layer.appendChild(frag);
   }
 
+  // ---------------------------------------------------------------------------
+  // 지도와 함께 움직이기 (2026-09-18)
+  // ---------------------------------------------------------------------------
+  // 지금까지는 지도가 움직일 때마다 조각을 전부 지우고 새 자리에 다시 그렸다.
+  // 그런데 그 계산은 지도가 멈춘 뒤에야 돌았다. 움직이는 동안 비구름은 제자리에
+  // 굳어 있다가 끝나고서야 툭 하고 따라붙었다 - 그 어긋남이 "엉거주춤"의 정체다.
+  //
+  // 지도 라이브러리들이 쓰는 방법을 그대로 쓴다. 움직이는 동안에는 다시 그리지 않고
+  // <b>층 전체를 통째로 밀고 늘린다</b>. 기준점 하나가 화면에서 얼마나 움직였는지만
+  // 재면 되므로 계산이 한 번이고, 그 변형은 브라우저가 매끄럽게 처리한다.
+  // 멈춘 뒤에 비로소 제 배율의 조각으로 다시 그린다.
+  var radarAnchor = null;
+  var radarRafPending = false;
+
+  function radarLiveTransform() {
+    var layer = document.getElementById('radarLayer');
+    if (!layer || !radarOn || !radarAnchor) return;
+    var proj = map.getProjection();
+    if (!proj || typeof proj.containerPointFromCoords !== 'function') return;
+    var now = proj.containerPointFromCoords(mapLatLng(radarAnchor.lat, radarAnchor.lng));
+    // 카카오는 배율 한 단계가 곧 두 배다(숫자가 작을수록 확대).
+    var scale = Math.pow(2, radarAnchor.level - mapGetLevel());
+    var dx = now.x - radarAnchor.pt.x, dy = now.y - radarAnchor.pt.y;
+    layer.style.transformOrigin = radarAnchor.pt.x + 'px ' + radarAnchor.pt.y + 'px';
+    layer.style.transform = 'translate(' + dx + 'px,' + dy + 'px) scale(' + scale + ')';
+  }
+
+  function radarLiveTransformThrottled() {
+    if (!radarOn || radarRafPending) return;
+    radarRafPending = true;
+    requestAnimationFrame(function() { radarRafPending = false; radarLiveTransform(); });
+  }
+
   function scheduleRadarDraw() {
     if (!radarOn) return;
     clearTimeout(radarRedrawTimer);
     radarRedrawTimer = setTimeout(function() {
       drawRadar();
       refreshRadarLegend();
-    }, 60);
+    }, 30);
   }
 
   function radarLegendText() {
@@ -4650,12 +4691,32 @@
   }
 
   document.getElementById('radarBtn').addEventListener('click', function() { setRadar(!radarOn); });
+  // 일부 기기에서 끄는 동안 center_changed가 드물게 오는 경우를 대비해 지도 요소의
+  // 포인터 움직임에도 한 번 더 붙인다(변환 한 번은 아주 싸다).
+  ['pointermove', 'touchmove', 'wheel'].forEach(function(ev) {
+    document.getElementById('map').addEventListener(ev, radarLiveTransformThrottled, { passive: true });
+  });
   // ⚠️ 2026-09-10: 확대·축소해도 비구름이 따라오지 않는다는 지적. 어느 한 신호만
   // 놓쳐도 그림이 그 자리에 굳어버리므로, 지도가 움직였다고 알려주는 신호를 모두 듣는다.
-  ['idle', 'zoom_changed', 'zoom_start', 'center_changed', 'bounds_changed', 'dragend', 'tilesloaded']
-    .forEach(function(ev) {
-      try { kakao.maps.event.addListener(map, ev, scheduleRadarDraw); } catch (e) {}
+  // 움직이는 동안에는 밀고 늘리기만, 멈춘 뒤에 다시 그리기.
+  ['center_changed', 'zoom_changed', 'bounds_changed'].forEach(function(ev) {
+    try { kakao.maps.event.addListener(map, ev, radarLiveTransformThrottled); } catch (e) {}
+  });
+  try {
+    // 끌 때는 손가락을 그대로 따라가야 하므로 미끄러지는 효과를 끈다.
+    kakao.maps.event.addListener(map, 'dragstart', function() {
+      var l = document.getElementById('radarLayer');
+      if (l) l.style.transition = 'none';
     });
+    // 확대·축소는 지도가 애니메이션으로 움직이므로 층도 같은 속도로 따라가게 한다.
+    kakao.maps.event.addListener(map, 'zoom_start', function() {
+      var l = document.getElementById('radarLayer');
+      if (l) l.style.transition = 'transform 220ms ease-out';
+    });
+  } catch (e) {}
+  ['idle', 'tilesloaded'].forEach(function(ev) {
+    try { kakao.maps.event.addListener(map, ev, scheduleRadarDraw); } catch (e) {}
+  });
 
   function loadRadarSettings(data) {
     radarProvider = (data && typeof data.radarProvider === 'string') ? data.radarProvider : '';
