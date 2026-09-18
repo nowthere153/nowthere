@@ -225,6 +225,20 @@
     border-radius: 12px; font-size: 11.5px; box-shadow: 0 2px 8px rgba(0,0,0,0.25);
   }
   #radarLegend.show { display: block; }
+  /* 색인(세기 눈금). 색상표를 여덟 가지 중에서 고를 수 있으므로 눈금을 글로 적어둘 수
+     없다 - 고른 색상표에서 그때그때 뽑아낸다. 자리를 늘 차지하면 지도를 가리므로
+     기본은 접어두고 "색인"을 누를 때만 편다. */
+  #radarScale {
+    position: absolute; left: 12px; bottom: 126px; z-index: 14; display: none;
+    background: rgba(17,24,39,0.88); color: #fff; padding: 8px 11px 7px;
+    border-radius: 12px; box-shadow: 0 2px 8px rgba(0,0,0,0.25);
+    max-width: calc(100% - 24px);
+  }
+  #radarScale.show { display: block; }
+  #radarScale .rsRow { display: flex; align-items: stretch; height: 14px; border-radius: 4px; overflow: hidden; }
+  #radarScale .rsRow i { flex: 1 1 0; display: block; }
+  #radarScale .rsEnds { display: flex; justify-content: space-between; font-size: 10.5px; opacity: .85; margin-top: 4px; }
+  #radarScale .rsNote { font-size: 10.5px; opacity: .7; margin-top: 4px; line-height: 1.55; max-width: 260px; }
 
   #placingBanner {
     display: none; position: absolute; bottom: 92px; left: 50%; transform: translateX(-50%);
@@ -538,6 +552,7 @@
 <div id="map"></div>
 <div id="radarLayer"></div>
 <div id="radarLegend"></div>
+<div id="radarScale"></div>
 <div id="statusMsg"></div>
 
 <div id="modal">
@@ -612,7 +627,7 @@
   // 생기면 재사용 가능) index.html에서는 호출하지 않음.
   // 배포된 파일이 최신인지 콘솔에서 한 줄로 확인하기 위한 표시.
   // 같은 이유로 여러 번 헛돌아서(옛 파일이 올라간 줄 모르고 디버깅) 넣어둠.
-  var NOWTHERE_VERSION = 'v2026-09-18b (비구름이 지도와 함께 움직임)';
+  var NOWTHERE_VERSION = 'v2026-09-18c (판정 카드 단정 제거 · 색인 눈금)';
   console.log('[NowThere] ' + NOWTHERE_VERSION);
 
   var CCTV_PROXY_BASE_URL = 'https://api.nowthere.net';
@@ -1412,14 +1427,19 @@
   // 초단기실황은 매시 정시 관측값을 40분에 공개하므로 최대 1시간 40분 전 상태일 수
   // 있다. 화면의 영상과 어긋나 보이는 일이 실제로 있었으므로(2026-08 실사용), 몇 시
   // 관측인지만 흐리게 적어두지 말고 "얼마나 지난 값인지"를 분명히 말한다.
-  function observationAgeText(baseDate, baseTime) {
-    if (!baseDate || !baseTime || baseDate.length < 8) return '';
+  function obsAgeMinutes(baseDate, baseTime) {
+    if (!baseDate || !baseTime || baseDate.length < 8) return null;
     var y = +baseDate.slice(0, 4), mo = +baseDate.slice(4, 6), d = +baseDate.slice(6, 8);
     var h = +baseTime.slice(0, 2);
     var baseMs = Date.UTC(y, mo - 1, d, h, 0, 0);          // 한국시각 값을 UTC 자리에 그대로 둠
     var nowMs = Date.now() + 9 * 60 * 60 * 1000;           // 지금을 같은 방식으로 맞춤
     var min = Math.round((nowMs - baseMs) / 60000);
-    if (min < 0 || min > 24 * 60) return '';
+    if (min < 0 || min > 24 * 60) return null;
+    return min;
+  }
+  function observationAgeText(baseDate, baseTime) {
+    var min = obsAgeMinutes(baseDate, baseTime);
+    if (min === null) return '';
     if (min < 60) return min + '분 전 관측';
     return Math.floor(min / 60) + '시간 ' + (min % 60) + '분 전 관측';
   }
@@ -2428,7 +2448,8 @@
   // 그림 자체가 안 뜬다), 판정할 때만 같은 조각을 한 장 더 받아 캔버스에 올려 본다.
   // 읽을 수 없으면(제공처가 CORS를 안 열어둔 경우) null을 돌려준다 - 모르는 것을
   // 아는 척하지 않기 위해서다.
-  // cb(null 모름 · 0 색 없음 · 1~255 색 있음(진할수록 큼))
+  // cb(진하기, 덮임비율) — 진하기: null 모름 · 0 색 없음 · 1~255 색 있음(진할수록 큼)
+  //                        덮임비율: 0~1, 누른 자리 둘레에서 색이 칠해진 비율
   function radarEchoAt(lat, lng, cb) {
     if (!radarOn || !radarTemplate) { cb(null); return; }
     var z = radarZoomFor();
@@ -2448,14 +2469,22 @@
         var ctx = c.getContext('2d');
         ctx.drawImage(img, 0, 0);
         // 딱 한 점만 보면 우연에 좌우된다. 누른 자리 둘레를 조금 넓게 본다
-        // (z7에서 한 픽셀은 약 1km라, ±3픽셀이면 대략 그 동네다).
-        var r = 3;
+        // (z7에서 한 픽셀은 약 1km라, ±5픽셀이면 대략 그 동네다).
+        // ⚠️ 2026-09-18: ±3픽셀은 좁았다. 비구름 가장자리를 눌렀을 때 "색 없음"으로
+        // 읽혀 "비가 없습니다"라고 단정한 일이 있었다. 넓히고, 아울러 그 동네가
+        // 얼마나 덮여 있는지(cover)도 함께 돌려준다 - 한 점만 스친 것과 온통
+        // 덮인 것은 같은 말로 전할 수 없다.
+        var r = 5;
         var x0 = Math.max(0, px - r), y0 = Math.max(0, py - r);
         var w = Math.min(256, px + r + 1) - x0, h = Math.min(256, py + r + 1) - y0;
         var d = ctx.getImageData(x0, y0, w, h).data;
-        var maxA = 0;
-        for (var k = 3; k < d.length; k += 4) if (d[k] > maxA) maxA = d[k];
-        cb(maxA);
+        var maxA = 0, painted = 0, total = 0;
+        for (var k = 3; k < d.length; k += 4) {
+          total++;
+          if (d[k] > maxA) maxA = d[k];
+          if (d[k] > 8) painted++;
+        }
+        cb(maxA, total ? painted / total : 0);
       } catch (e) {
         cb(null);   // 캔버스가 오염됨 = 읽을 권한이 없음
       }
@@ -2488,60 +2517,110 @@
     body.insertBefore(holder, body.firstChild);
 
     var sat = (radarMode === 'satellite');
-    var echo = undefined, obs = undefined;
+    var echo = undefined, cover = 0, obs = undefined;
     function tryRender() {
       if (echo === undefined || obs === undefined || !holder.isConnected) return;
-      var hasEcho = (echo === null) ? null : (echo > 12);   // 아주 옅은 잡티는 색으로 치지 않는다
+
+      // ── 색의 세기를 세 갈래로 나눈다 ────────────────────────────────────────
+      // ⚠️ 2026-09-18(2차): "파랗게 보이는데 비가 오지 않는다고 하고, 정작 그 자리
+      // 카메라에는 비가 온다"는 관찰이 왔다. 두 군데가 잘못돼 있었다.
+      //  (1) 있다/없다 두 갈래로만 갈라서, 가장자리의 옅은 색을 '없음'으로 처리했다.
+      //  (2) 기상청 실황을 '지금'으로 취급했다. 실황은 정시 관측값을 40분에 공개하므로
+      //      최대 1시간 40분 전 상태다(이 파일 observationAgeText의 주석 그대로다).
+      //      레이더 화면은 10분 전 것이다. 오래된 자료로 새 자료를 부정한 셈이다.
+      // 그래서 규칙을 하나 세운다 - <b>오래된 관측으로 새 레이더를 부정하지 않는다.</b>
+      // 둘이 엇갈리면 단정하지 않고, 바로 아래에 있는 카메라로 넘긴다.
+      var band;                       // null 모름 · 'none' · 'faint' · 'clear'
+      if (echo === null) band = null;
+      else if (echo <= 8) band = 'none';
+      else if (echo <= 60 || cover < 0.25) band = 'faint';
+      else band = 'clear';
+
       var raining = !!(obs && obs.raining);
+      var ageTxt = observationAgeText(obs && obs.baseDate, obs && obs.baseTime);
+      var ageMin = obsAgeMinutes(obs && obs.baseDate, obs && obs.baseTime);
+      var stale = (ageMin === null) || (ageMin >= 30);
+      var obsWord = '기상청 관측' + (ageTxt ? '(' + ageTxt + ')' : '');
+      var mm = (obs && obs.rain1h) ? ' 시간당 ' + obs.rain1h + 'mm.' : '';
       var head, sub, tone = '#475569', bg = '#f8fafc';
+      var ask = ' <b>아래 화면이 지금 그 자리입니다 — 눈으로 확인해 보세요.</b>';
 
       if (sat) {
-        // 위성은 구름을 본다. 비 여부와 직접 이어지지 않으므로 따로 말한다.
-        if (hasEcho === true && raining) { head = '☁️ 구름이 끼어 있고, 비도 옵니다'; tone = '#1d4ed8'; bg = '#eff6ff';
-          sub = '위성에 구름이 잡히고 기상청 관측도 비를 말합니다.'; }
-        else if (hasEcho === true) { head = '☁️ 구름은 있지만 비는 오지 않습니다';
-          sub = '위성은 구름 꼭대기를 봅니다. 구름이 있다고 비가 오는 것은 아닙니다.'; }
-        else if (hasEcho === false && raining) { head = '🌧️ 비가 옵니다'; tone = '#1d4ed8'; bg = '#eff6ff';
-          sub = '이 자리 위성 화면은 비어 있지만 기상청 관측은 비를 말합니다. 낮은 구름은 위성에 옅게 잡힙니다.'; }
-        else if (hasEcho === false) { head = '🌤️ 구름도 비도 없습니다';
-          sub = '위성에도 잡히는 구름이 없고, 기상청 관측으로도 강수가 없습니다.'; }
-        else { head = raining ? '🌧️ 지금 여기 비가 옵니다' : '🌤️ 지금 여기는 비가 오지 않습니다'; tone = raining ? '#1d4ed8' : '#475569'; bg = raining ? '#eff6ff' : '#f8fafc';
-          sub = '기상청 관측 기준입니다.'; }
-      } else if (hasEcho === true && raining) {
+        // 위성은 구름 꼭대기를 본다. 비 여부와 직접 이어지지 않으므로 따로 말한다.
+        if (band !== 'none' && band !== null && raining) {
+          head = '☁️ 구름이 끼어 있고, 비도 옵니다'; tone = '#1d4ed8'; bg = '#eff6ff';
+          sub = '위성에 구름이 잡히고 ' + obsWord + '도 비를 말합니다.' + mm;
+        } else if (band !== 'none' && band !== null) {
+          head = '☁️ 구름이 있습니다 · 비는 확인되지 않았어요';
+          sub = '위성은 구름 <b>꼭대기</b>를 봅니다. 구름이 있다고 비가 오는 것은 아니고, ' +
+                '반대로 ' + obsWord + '에 없다고 지금 안 온다고 할 수도 없습니다.' + ask;
+        } else if (band === 'none' && raining) {
+          head = '🌧️ 비가 옵니다'; tone = '#1d4ed8'; bg = '#eff6ff';
+          sub = '이 자리 위성 화면은 비어 있지만 ' + obsWord + '은 비를 말합니다. 낮은 구름은 위성에 옅게 잡힙니다.' + mm;
+        } else if (band === 'none') {
+          head = '🌤️ 구름도 비도 잡히지 않습니다';
+          sub = '위성에 잡히는 구름이 없고, ' + obsWord + '으로도 강수가 없습니다.' +
+                (stale ? ' 다만 관측은 정시 값이라 그사이 달라졌을 수 있습니다.' + ask : '');
+        } else {
+          head = raining ? '🌧️ 지금 여기 비가 옵니다' : '🌤️ 관측으로는 비가 없습니다';
+          tone = raining ? '#1d4ed8' : '#475569'; bg = raining ? '#eff6ff' : '#f8fafc';
+          sub = obsWord + ' 기준입니다. 화면의 색은 읽지 못했습니다.' + mm + ask;
+        }
+
+      } else if (band !== 'none' && band !== null && raining) {
         head = '🌧️ 지금 여기 비가 옵니다'; tone = '#1d4ed8'; bg = '#eff6ff';
-        sub = '레이더도, 기상청 관측도 비를 말합니다.' + (obs.rain1h ? ' 시간당 ' + obs.rain1h + 'mm.' : '') +
+        sub = '레이더도, ' + obsWord + '도 비를 말합니다.' + mm +
               ' <b>카메라 화면에 잘 안 보이더라도 실제로 내리고 있습니다.</b>';
-      } else if (hasEcho === true && !raining) {
-        head = '🌤️ 하늘엔 있지만, 땅까지는 오지 않고 있어요';
-        sub = '레이더는 <b>하늘 중간 높이</b>를 봅니다. 거기 물방울이 있어도 땅에 닿기 전에 ' +
-              '마르는 일이 흔합니다. 기상청 관측으로도 지금 이 자리는 강수가 없습니다 — ' +
-              '<b>레이더가 틀린 것이 아니라 서로 다른 높이를 보고 있는 것</b>입니다.';
-      } else if (hasEcho === false && raining) {
+
+      } else if (band === 'clear' && !raining) {
+        // ⚠️ 여기가 틀렸던 자리다. 예전에는 "땅까지는 오지 않고 있어요"라고 단정했다.
+        // 우리가 아는 것은 그것이 아니다. 아는 것만 적고, 왜 엇갈리는지 가능한 까닭을
+        // 늘어놓되 어느 하나로 결론짓지 않는다.
+        head = '🌧️ 레이더엔 비가 잡힙니다 · 땅에서는 아직 확인되지 않았어요';
+        tone = '#1d4ed8'; bg = '#eff6ff';
+        sub = '두 자료가 엇갈립니다. 까닭은 셋 중 하나입니다.<br>' +
+              '① <b>관측이 레이더보다 오래된 값</b>입니다 — 지금 쓴 값은 ' +
+              (ageTxt || '정시 관측') + '이고, 레이더 화면은 10분 안쪽입니다. ' +
+              '막 시작된 비는 아직 관측에 안 들어가 있습니다.<br>' +
+              '② <b>관측 지점이 여기가 아닙니다</b> — 실황은 5km 격자 값이라, ' +
+              '한 동네 건너에서 내리는 비는 0으로 적힙니다.<br>' +
+              '③ 하늘 중간 높이의 물방울이 <b>땅에 닿기 전에 마르는 중</b>일 수 있습니다.<br>' +
+              '셋 중 무엇인지는 자료로 가릴 수 없습니다.' + ask;
+
+      } else if (band === 'faint' && !raining) {
+        head = '🌦️ 비 기운이 스칩니다 · 확실하지 않아요';
+        sub = '이 자리는 비구름의 <b>가장자리</b>이거나 아주 옅은 색입니다. ' +
+              obsWord + '으로는 강수가 없지만, 그 값은 정시 관측이라 방금 시작된 비는 ' +
+              '아직 들어가 있지 않습니다.' + ask;
+
+      } else if (band === 'none' && raining) {
         head = '🌧️ 레이더에 잡히지 않는 약한 비가 내립니다'; tone = '#1d4ed8'; bg = '#eff6ff';
-        sub = '이 자리 레이더 화면은 비어 있는데 기상청 관측은 비를 말합니다.' +
-              (obs.rain1h ? ' 시간당 ' + obs.rain1h + 'mm.' : '') +
+        sub = '이 자리 레이더 화면은 비어 있는데 ' + obsWord + '은 비를 말합니다.' + mm +
               ' 아주 약한 비나 낮게 깔린 비는 레이더가 놓치기도 합니다.';
-      } else if (hasEcho === false) {
-        head = '🌤️ 지금 여기는 비가 없습니다';
-        sub = '레이더 화면도 이 자리는 비어 있고, 기상청 관측으로도 강수가 없습니다. 두 자료가 같은 말을 합니다.';
+
+      } else if (band === 'none') {
+        head = '🌤️ 지금 여기는 비 기운이 없습니다';
+        sub = '레이더 화면도 이 자리는 비어 있고, ' + obsWord + '으로도 강수가 없습니다. 두 자료가 같은 말을 합니다.' +
+              (stale ? ' 다만 관측은 정시 값이라 그사이 시작된 비는 아직 들어 있지 않습니다.' + ask : '');
+
       } else {
         // 색을 읽지 못한 경우 - 아는 것만 말한다
-        head = raining ? '🌧️ 지금 여기 비가 옵니다' : '🌤️ 지금 여기는 비가 오지 않습니다';
+        head = raining ? '🌧️ 지금 여기 비가 옵니다' : '🌤️ 관측으로는 비가 없습니다';
         tone = raining ? '#1d4ed8' : '#475569'; bg = raining ? '#eff6ff' : '#f8fafc';
-        sub = raining
-          ? '기상청 관측 기준입니다.' + (obs.rain1h ? ' 시간당 ' + obs.rain1h + 'mm.' : '')
-          : '기상청 관측 기준입니다. 화면에 색이 칠해져 있다면 그것은 하늘 중간 높이의 물방울이며, 땅에 닿기 전에 마르는 중일 수 있습니다.';
+        sub = obsWord + ' 기준입니다.' + mm + ' 화면의 색은 읽지 못했습니다.' + ask;
       }
 
       holder.innerHTML = '<div style="font-weight:800;color:' + tone + ';margin-bottom:3px;">' + head + '</div>' +
         '<div>' + sub + '</div>' +
         '<div style="margin-top:6px;font-size:11.5px;color:#94a3b8;">' +
-        (sat ? '위성(구름)' : '레이더(하늘)') + ' · 기상청 관측(땅) · 카메라(눈) 세 가지를 맞춰본 결과입니다.' +
-        (isAdmin && echo !== null ? ' <span style="opacity:.7">[색 ' + echo + ']</span>' : '') + '</div>';
+        (sat ? '위성(구름 꼭대기 · 10분 전)' : '레이더(하늘 중간 높이 · 10분 전)') + ' · ' +
+        '기상청 관측(땅 · 5km 격자' + (ageTxt ? ' · ' + ageTxt : '') + ') · 카메라(눈 · 지금) 세 가지를 맞춰본 결과입니다.' +
+        (isAdmin && echo !== null ? ' <span style="opacity:.7">[색 ' + echo + ' · 덮임 ' +
+          Math.round(cover * 100) + '% · ' + band + ']</span>' : '') + '</div>';
       holder.style.background = bg;
     }
 
-    radarEchoAt(lat, lng, function(v) { echo = v; tryRender(); });
+    radarEchoAt(lat, lng, function(v, cv) { echo = v; cover = cv || 0; tryRender(); });
     fetch(CCTV_PROXY_BASE_URL + '/api/weather-now?lat=' + encodeURIComponent(lat) + '&lng=' + encodeURIComponent(lng))
       .then(function(r) { if (!r.ok) throw new Error('HTTP ' + r.status); return r.json(); })
       .then(function(w) { obs = w || {}; tryRender(); })
@@ -4551,6 +4630,130 @@
     }, 30);
   }
 
+  // ---------------------------------------------------------------------------
+  // 색인 (세기 눈금) · 2026-09-18
+  // ---------------------------------------------------------------------------
+  // ⚠️ "색인이 없다. 그런데 고를 수 있는 색상표가 여럿이라 하나로 적어둘 수도 없다"는
+  // 지적이 왔다. 맞는 말이라 적는 쪽을 포기했다 — 고른 색상표에서 그때그때 재서
+  // 만든다. 조각 두 장을 같은 자리에서 겹쳐 읽는다.
+  //   · 지금 색상표 조각 : 자리마다 무슨 색인지
+  //   · 0번 흑백(dBZ) 조각 : 같은 자리가 얼마나 센지 — 흑백이라 밝기 하나로 줄이 선다
+  // 다만 흑백이 밝을수록 센 것인지 어두울수록 센 것인지는 우리가 모른다. 그 방향은
+  // 넓이로 가른다 — 레이더 그림에서 약한 비는 넓고 센 비는 좁다. 가장 넓은 색을
+  // 약한 끝으로 놓고 거기서부터 줄 세운다. 신호 하나만으로는 서지 않고, 둘이
+  // 서로를 받쳐야 선다.
+  // ⚠️ 밀리미터는 적지 않는다. 어느 색이 몇 mm인지 제공처가 우리에게 말해준 적이
+  // 없다. 순서만 아는 것은 순서만 말한다(A20에서 배운 것).
+  var radarScaleOpen = false;
+  var radarScaleCache = {};    // 이번 접속에서 잰 것   { '2': ['#rrggbb', …] }
+  var radarScaleSaved = {};    // config/settings 에 저장해 둔 것 (모든 사용자 공용)
+
+  function hex2(n) { var s = (n | 0).toString(16); return s.length < 2 ? '0' + s : s; }
+
+  function radarScaleColors() {
+    var k = String(radarColorScheme);
+    var v = radarScaleCache[k] || radarScaleSaved[k];
+    return (v && v.length >= 3) ? v : null;
+  }
+
+  // 색상표 번호만 갈아끼운 조각 한 장의 주소. 주소 모양이 예상과 다르면 손대지 않는다.
+  function radarScaleTileUrl(scheme, z, tx, ty) {
+    if (!radarTemplate) return '';
+    var base = radarTemplate.replace(/\/[0-9]+\/1_1\.png$/, '');
+    if (base === radarTemplate) return '';
+    return base.replace('{z}', z).replace('{x}', tx).replace('{y}', ty) + '/' + scheme + '/1_1.png';
+  }
+
+  function loadTilePixels(url, cb) {
+    var img = new Image();
+    img.crossOrigin = 'anonymous';
+    var done = false;
+    var t = setTimeout(function() { if (!done) { done = true; cb(null); } }, 9000);
+    img.onload = function() {
+      if (done) return;
+      done = true; clearTimeout(t);
+      try {
+        var c = document.createElement('canvas');
+        c.width = 256; c.height = 256;
+        var ctx = c.getContext('2d');
+        ctx.drawImage(img, 0, 0);
+        cb(ctx.getImageData(0, 0, 256, 256).data);
+      } catch (e) { cb(null); }   // 캔버스 오염 = 읽을 권한이 없음
+    };
+    img.onerror = function() { if (!done) { done = true; clearTimeout(t); cb(null); } };
+    img.src = url;
+  }
+
+  // cb(colors[] | null, 안내문)
+  function measureRadarScale(scheme, cb) {
+    if (!radarTemplate) { cb(null, '조각 주소를 아직 받지 못했습니다.'); return; }
+    if (radarMode !== 'radar') { cb(null, '눈금은 “비” 화면에서만 잴 수 있습니다.'); return; }
+    // 지금 자리에 비가 없으면 아홉 장이 다 투명하다. 표본을 넓게(z5) 잡는다.
+    var c = map.getCenter(), z = 5;
+    var tx = Math.floor(lngToTileX(c.getLng(), z)), ty = Math.floor(latToTileY(c.getLat(), z));
+    var uColor = radarScaleTileUrl(scheme, z, tx, ty);
+    var uGray = radarScaleTileUrl(0, z, tx, ty);
+    if (!uColor || !uGray) { cb(null, '조각 주소 모양이 달라 잴 수 없습니다.'); return; }
+
+    var dc = undefined, dg = undefined;
+    function go() {
+      if (dc === undefined || dg === undefined) return;
+      if (!dc || !dg) { cb(null, '조각을 읽지 못했습니다. 제공처가 읽기를 막아둔 경우일 수 있습니다.'); return; }
+      var groups = {}, key, gr, lum, o;
+      for (var i = 0; i < 256 * 256; i++) {
+        o = i * 4;
+        if (dc[o + 3] <= 8 || dg[o + 3] <= 8) continue;
+        // 부드럽게 옵션 때문에 중간색이 무수히 생긴다. 5비트로 뭉갠다.
+        var r = dc[o] & 0xF8, g = dc[o + 1] & 0xF8, b = dc[o + 2] & 0xF8;
+        key = r + ',' + g + ',' + b;
+        lum = 0.299 * dg[o] + 0.587 * dg[o + 1] + 0.114 * dg[o + 2];
+        gr = groups[key] || (groups[key] = { r: r, g: g, b: b, n: 0, lum: 0 });
+        gr.n++; gr.lum += lum;
+      }
+      var arr = [];
+      for (var k in groups) if (Object.prototype.hasOwnProperty.call(groups, k)) {
+        groups[k].lum = groups[k].lum / groups[k].n;
+        arr.push(groups[k]);
+      }
+      if (arr.length < 3) {
+        cb(null, '지금 이 화면에 비가 거의 없어 눈금을 만들 수 없습니다. 비가 오는 날, 비가 오는 지역으로 지도를 옮긴 뒤 다시 눌러주세요.');
+        return;
+      }
+      arr.sort(function(a, b) { return b.n - a.n; });      // 넓은 순
+      var top = arr.slice(0, 8);
+      var weakLum = top[0].lum, far = top[0];              // 가장 넓은 색 = 약한 끝
+      for (var j = 1; j < top.length; j++) {
+        if (Math.abs(top[j].lum - weakLum) > Math.abs(far.lum - weakLum)) far = top[j];
+      }
+      var ascending = (far.lum > weakLum);                 // 센 쪽이 밝으면 오름차순
+      top.sort(function(a, b) { return ascending ? a.lum - b.lum : b.lum - a.lum; });
+      cb(top.map(function(x) { return '#' + hex2(x.r) + hex2(x.g) + hex2(x.b); }),
+         '표본 ' + arr.length + '색 중 넓은 여덟을 세기 순으로 세웠습니다.');
+    }
+    loadTilePixels(uColor, function(d) { dc = d; go(); });
+    loadTilePixels(uGray, function(d) { dg = d; go(); });
+  }
+
+  function renderRadarScale() {
+    var el = document.getElementById('radarScale');
+    if (!el) return;
+    if (!radarOn || !radarScaleOpen || radarMode !== 'radar') { el.classList.remove('show'); return; }
+    var cols = radarScaleColors();
+    if (cols) {
+      el.innerHTML = '<div class="rsRow">' + cols.map(function(c) {
+          return '<i style="background:' + escapeAttr(c) + '"></i>';
+        }).join('') + '</div>' +
+        '<div class="rsEnds"><span>약한 비</span><span>센 비</span></div>' +
+        '<div class="rsNote">지금 쓰는 색상표에서 <b>직접 재서</b> 만든 눈금입니다. ' +
+        '세기 <b>순서</b>만 말합니다 — 몇 mm인지는 여기서 알 수 없습니다.</div>';
+    } else {
+      el.innerHTML = '<div class="rsNote">색이 짙어질수록 비가 셉니다. ' +
+        '이 색상표의 눈금은 아직 재지 않았습니다' +
+        (isAdmin ? ' — 관리자 콘솔 8번에서 <b>색인 만들기</b>를 눌러주세요.' : '.') + '</div>';
+    }
+    el.classList.add('show');
+  }
+
   function radarLegendText() {
     // 두 자료를 오갈 수 있게 라벨 자체를 전환 손잡이로 쓴다. 지금 보고 있는 것이
     // 무엇인지 항상 보이고, 다른 것으로 넘어가는 길도 같은 자리에 있다.
@@ -4562,6 +4765,13 @@
         '">' + label + '</button>';
     };
     var base = tab('radar', '🌧️ 비') + tab('satellite', '☁️ 구름');
+    // 색인은 "비" 화면에서만 뜻이 있다. 위성 적외선은 세기가 아니라 구름 꼭대기 온도다.
+    if (radarMode === 'radar') {
+      base += '<button type="button" data-rscale="1" style="border:none;cursor:pointer;' +
+        'border-radius:9px;padding:3px 9px;margin-right:3px;font-size:11.5px;font-weight:700;' +
+        (radarScaleOpen ? 'background:#fff;color:#111827;' : 'background:rgba(255,255,255,0.16);color:#e5e7eb;') +
+        '">색인</button>';
+    }
     if (radarTooWide()) {
       return base + ' <span style="opacity:.85">화면을 조금 확대하면 겹쳐 보입니다</span>';
     }
@@ -4592,6 +4802,20 @@
         setRadar(true);   // 자료가 바뀌면 주소부터 다시 받아야 한다
       });
     });
+    var sc = lg.querySelector('[data-rscale]');
+    if (sc) sc.addEventListener('click', function() {
+      radarScaleOpen = !radarScaleOpen;
+      // 아직 잰 적이 없으면 펼치는 김에 조용히 재둔다. 실패해도 안내문만 달라진다.
+      if (radarScaleOpen && !radarScaleColors()) {
+        measureRadarScale(radarColorScheme, function(cols) {
+          if (cols) radarScaleCache[String(radarColorScheme)] = cols;
+          renderRadarScale();
+        });
+      }
+      refreshRadarLegend();
+      renderRadarScale();
+    });
+    renderRadarScale();
   }
 
   // 지금 화면 한가운데에 해당하는 조각 한 장의 주소. 관리자가 눈으로 확인할 때 쓴다.
@@ -4639,6 +4863,8 @@
       layer.classList.remove('show');
       layer.innerHTML = '';
       legend.classList.remove('show');
+      var sc0 = document.getElementById('radarScale');
+      if (sc0) sc0.classList.remove('show');
       if (btn) btn.classList.remove('on');
       return;
     }
@@ -4729,6 +4955,11 @@
     }
     if (data && typeof data.radarLook === 'number' && data.radarLook >= 0 && data.radarLook <= 2) {
       radarLook = Math.round(data.radarLook);
+    }
+    // 관리자가 한 번 재서 저장해 둔 색인. 색상표 번호를 열쇠로 쓴다.
+    // 없으면 없는 대로 둔다 - 사용자 쪽에서 펼칠 때 그 자리에서 재본다.
+    if (data && data.radarScale && typeof data.radarScale === 'object') {
+      radarScaleSaved = data.radarScale;
     }
     updateRadarButtonVisibility();
   }
@@ -5049,6 +5280,7 @@
       '<button id="admRadarPeek" style="border:1px solid #cbd5e1;border-radius:6px;padding:7px 12px;font-size:12px;cursor:pointer;background:#fff;color:#475569;">배율별 조각 확인</button>' +
       '<button id="admRadarLook" style="border:1px solid #cbd5e1;border-radius:6px;padding:7px 12px;font-size:12px;cursor:pointer;background:#fff;color:#475569;">진하기 (지금 ' + RADAR_LOOK_PRESETS[radarLook].name + ')</button>' +
       '<button id="admRadarColor" style="border:1px solid #cbd5e1;border-radius:6px;padding:7px 12px;font-size:12px;cursor:pointer;background:#fff;color:#475569;">색상표 고르기 (지금 ' + radarColorScheme + '번)</button>' +
+      '<button id="admRadarScale" style="border:1px solid #cbd5e1;border-radius:6px;padding:7px 12px;font-size:12px;cursor:pointer;background:#fff;color:#475569;">색인 만들기 (' + radarColorScheme + '번' + (radarScaleColors() ? ' · 있음' : ' · 없음') + ')</button>' +
       '<button id="admRadarCheck" style="border:none;border-radius:6px;padding:7px 12px;font-size:12px;cursor:pointer;background:#0a7d2c;color:#fff;">이 자리 실황 대조</button>' +
       '<button id="admRadarGrid" style="border:none;border-radius:6px;padding:7px 12px;font-size:12px;cursor:pointer;background:' +
       (radarDebug ? '#b45309' : '#1f2937') + ';color:#fff;">격자 맞춤 확인 ' + (radarDebug ? '끄기' : '켜기') + '</button>' +
@@ -5561,6 +5793,50 @@
               renderAdminConsole();
             }).catch(function(err) { alert('저장 실패: ' + err.message); });
           });
+        });
+      });
+    });
+
+    // ── 색인 만들기 ─────────────────────────────────────────────────────────
+    // 재기만 하고 바로 쓰지 않는다. 눈으로 보고 "이게 약한 비에서 센 비 순서가
+    // 맞는가"를 판단한 뒤에 저장한다. 우리가 만든 것은 측정값이지 정답이 아니다.
+    var rscBtn = document.getElementById('admRadarScale');
+    if (rscBtn) rscBtn.addEventListener('click', function() {
+      var box = document.getElementById('admRadarPeekBox');
+      if (!box) return;
+      if (!radarOn) { box.innerHTML = '<p style="font-size:12px;color:#b91c1c;margin:8px 0;">비구름을 먼저 켜주세요.</p>'; return; }
+      box.innerHTML = '<p style="font-size:12px;color:#94a3b8;margin:8px 0;">' + radarColorScheme + '번 색상표의 눈금을 재는 중…</p>';
+      measureRadarScale(radarColorScheme, function(cols, note) {
+        if (!cols) {
+          box.innerHTML = '<p style="font-size:12px;color:#b91c1c;margin:8px 0;line-height:1.7;">' + escapeHtml(note || '재지 못했습니다.') + '</p>';
+          return;
+        }
+        var swatches = cols.map(function(c) {
+          return '<div style="flex:1 1 0;text-align:center;">' +
+            '<div style="height:34px;border-radius:5px;background:' + escapeAttr(c) + ';border:1px solid #cbd5e1;"></div>' +
+            '<div style="font-size:9.5px;color:#94a3b8;margin-top:3px;">' + escapeHtml(c) + '</div></div>';
+        }).join('');
+        box.innerHTML = '<div style="margin-top:8px;padding:10px 12px;background:#f8fafc;border-radius:8px;">' +
+          '<div style="font-size:11.5px;color:#64748b;margin-bottom:8px;line-height:1.7;">' +
+          '0번 흑백 조각과 겹쳐 읽어 <b>약한 비 → 센 비</b> 순서로 세운 것입니다. ' + escapeHtml(note || '') + '<br>' +
+          '<b>눈으로 확인하고 저장하세요.</b> 왼쪽이 약하고 오른쪽이 센 순서로 보이지 않으면 저장하지 마시고, ' +
+          '비가 더 넓게 오는 날 다시 재주세요.</div>' +
+          '<div style="display:flex;gap:4px;align-items:flex-end;">' + swatches + '</div>' +
+          '<div style="display:flex;justify-content:space-between;font-size:11px;color:#94a3b8;margin-top:4px;"><span>약한 비</span><span>센 비</span></div>' +
+          '<button id="rscSave" style="margin-top:10px;border:none;border-radius:6px;padding:8px 14px;font-size:12px;cursor:pointer;background:#0a7d2c;color:#fff;">이 눈금을 ' + radarColorScheme + '번 색인으로 저장</button>' +
+          '</div>';
+        var sv = document.getElementById('rscSave');
+        if (sv) sv.addEventListener('click', function() {
+          var next = {};
+          for (var k in radarScaleSaved) if (Object.prototype.hasOwnProperty.call(radarScaleSaved, k)) next[k] = radarScaleSaved[k];
+          next[String(radarColorScheme)] = cols;
+          db.collection('config').doc('settings').set({ radarScale: next }, { merge: true }).then(function() {
+            radarScaleSaved = next;
+            radarScaleCache[String(radarColorScheme)] = cols;
+            renderRadarScale();
+            showStatus('✅ ' + radarColorScheme + '번 색상표의 색인을 저장했습니다.');
+            renderAdminConsole();
+          }).catch(function(err) { alert('저장 실패: ' + err.message); });
         });
       });
     });
