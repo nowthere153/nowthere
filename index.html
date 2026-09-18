@@ -672,7 +672,7 @@
   // 생기면 재사용 가능) index.html에서는 호출하지 않음.
   // 배포된 파일이 최신인지 콘솔에서 한 줄로 확인하기 위한 표시.
   // 같은 이유로 여러 번 헛돌아서(옛 파일이 올라간 줄 모르고 디버깅) 넣어둠.
-  var NOWTHERE_VERSION = 'v2026-09-18j (콘솔에서 바로 재생 확인)';
+  var NOWTHERE_VERSION = 'v2026-09-18k (한꺼번에 넣기)';
   console.log('[NowThere] ' + NOWTHERE_VERSION);
 
   var CCTV_PROXY_BASE_URL = 'https://api.nowthere.net';
@@ -5691,6 +5691,67 @@
   }
 
   // ── 관리자 콘솔 10번 표 ─────────────────────────────────────────────────────
+
+  // ---------------------------------------------------------------------------
+  // 한꺼번에 넣기 (2026-09-18)
+  // ---------------------------------------------------------------------------
+  // ⚠️ 처음에는 줄마다 버튼을 눌러 하나씩 넣게 만들었다. 열일곱 개일 때만 되는
+  // 방식이고, 스물두 개가 되자 바로 무너졌다 - 관리자 콘솔에 대해 이미 받은 지적을
+  // 한 화면 뒤에서 그대로 반복한 것이다. 목록을 다루는 화면은 처음부터 "여러 개"를
+  // 전제로 만들어야 한다.
+  //
+  // 붙여넣는 글은 사람이 손으로 쓴 것이라 모양이 제각각이다. 그래서 형식을 요구하지
+  // 않고 한 줄에서 아는 것만 골라낸다 - 주소처럼 생긴 것, 좌표처럼 생긴 것, 그리고
+  // 남은 글자를 이름으로 본다. 탭이든 쉼표든 공백이든 상관없다.
+  function parkCamBulkParse(text) {
+    var cams = parkCamsAll();
+    var out = { rows: [], unmatched: [] };
+    String(text || '').split(/\r?\n/).forEach(function(raw) {
+      var line = raw.trim();
+      if (!line) return;
+      var rest = line;
+
+      // 1) 주소 - https 만 받는다. http 는 우리 사이트에서 막혀 넣어봐야 검은 화면이다.
+      var stream = '';
+      var mUrl = rest.match(/https:\/\/\S+/i);
+      if (mUrl) { stream = mUrl[0].replace(/[),;]+$/, ''); rest = rest.replace(mUrl[0], ' '); }
+      var httpOnly = !stream && /http:\/\/\S+/i.test(rest);
+
+      // 2) 좌표 - "33.3617, 126.5292" 처럼 생긴 두 숫자
+      var lat = null, lng = null;
+      var mGeo = rest.match(/(-?\d{1,3}\.\d{3,})\s*[, ]\s*(-?\d{1,3}\.\d{3,})/);
+      if (mGeo) {
+        var a = parseFloat(mGeo[1]), b = parseFloat(mGeo[2]);
+        // 우리나라는 위도 33~39, 경도 124~132. 뒤바뀌어 들어와도 알아서 바로잡는다.
+        if (a >= 124 && b <= 43) { var t = a; a = b; b = t; }
+        if (a >= -90 && a <= 90 && b >= -180 && b <= 180) { lat = a; lng = b; }
+        rest = rest.replace(mGeo[0], ' ');
+      }
+
+      // 3) 남은 글자로 카메라를 찾는다
+      var name = rest.replace(/[\t,|]+/g, ' ').replace(/\s+/g, ' ').trim();
+      var key = name.replace(/\s/g, '');
+      var hit = null;
+      cams.forEach(function(c) {
+        if (hit) return;
+        if (c.key === key) { hit = c; return; }
+        var full = c.title.replace(/\s/g, '');
+        var shortName = shortParkName(c.title).replace(/\s/g, '');
+        if (!key) return;
+        if (full === key || shortName === key) { hit = c; return; }
+        if (shortName && (key.indexOf(shortName) >= 0 || shortName.indexOf(key) >= 0)) hit = c;
+      });
+      // 못 읽은 줄은 왜 못 읽었는지 함께 적는다. 이유 없이 되돌려주면 고칠 수가 없다.
+      if (!hit) { out.unmatched.push(line + '  ← 목록에 없는 이름입니다'); return; }
+      if (!stream && lat === null) {
+        out.unmatched.push(line + (httpOnly ? '  ← http 주소는 쓸 수 없습니다' : '  ← 넣을 것이 없습니다'));
+        return;
+      }
+      out.rows.push({ key: hit.key, title: hit.title, stream: stream, lat: lat, lng: lng, httpOnly: httpOnly });
+    });
+    return out;
+  }
+
   function parkCamSummary() {
     var all = parkCamsAll();
     var placed = all.filter(function(c) { return c.lat != null && c.lng != null; }).length;
@@ -5745,6 +5806,55 @@
     Array.prototype.forEach.call(document.querySelectorAll('#modalBody .pcPlace'), function(b) {
       b.addEventListener('click', function() { startParkPlacing(b.getAttribute('data-k')); });
     });
+    // 한꺼번에 넣기 - 넣기 전에 무엇이 바뀌는지 먼저 보여준다. 스물두 줄을 한 번에
+    // 덮어쓰는 일이라, 눈으로 확인하지 않고 저장하면 되돌리는 값이 크다.
+    var bulkBtn = document.getElementById('admParkBulkBtn');
+    if (bulkBtn) bulkBtn.addEventListener('click', function() {
+      var ta = document.getElementById('admParkBulk');
+      var out = document.getElementById('admParkBulkOut');
+      if (!ta || !out) return;
+      var r = parkCamBulkParse(ta.value);
+      if (!r.rows.length && !r.unmatched.length) { out.innerHTML = ''; return; }
+      var html = '';
+      if (r.rows.length) {
+        html += '<div style="margin-top:8px;font-size:11.5px;color:#0a7d2c;font-weight:700;">넣을 것 ' + r.rows.length + '줄</div>';
+        html += r.rows.map(function(x) {
+          return '<div style="font-size:11.5px;color:#475569;padding:3px 0;border-bottom:1px solid #f1f5f9;">' +
+            escapeHtml(x.title) +
+            (x.stream ? ' <span style="color:#0f766e;">🎥 영상</span>' : '') +
+            (x.lat !== null ? ' <span style="color:#0a7d2c;">📍 ' + x.lat.toFixed(4) + ', ' + x.lng.toFixed(4) + '</span>' : '') +
+            '</div>';
+        }).join('');
+      }
+      if (r.unmatched.length) {
+        html += '<div style="margin-top:8px;font-size:11.5px;color:#b45309;font-weight:700;">못 읽은 줄 ' + r.unmatched.length + '</div>' +
+          r.unmatched.map(function(l) {
+            return '<div style="font-size:11px;color:#b45309;padding:2px 0;">' + escapeHtml(l) + '</div>';
+          }).join('');
+      }
+      if (r.rows.length) {
+        html += '<button id="admParkBulkSave" style="margin-top:8px;border:none;border-radius:6px;padding:7px 12px;' +
+          'font-size:12px;cursor:pointer;background:#0a7d2c;color:#fff;">이대로 저장</button>';
+      }
+      out.innerHTML = html;
+      var save = document.getElementById('admParkBulkSave');
+      if (save) save.addEventListener('click', function() {
+        r.rows.forEach(function(x) {
+          var st = parkCamState[x.key] || {};
+          if (x.stream) st.stream = x.stream;
+          if (x.lat !== null) { st.lat = x.lat; st.lng = x.lng; }
+          if (typeof st.on !== 'boolean') st.on = false;   // 넣어도 공개는 따로 정한다
+          parkCamState[x.key] = st;
+        });
+        saveParkCams(function(ok) {
+          if (!ok) return;
+          drawParkCams();
+          showStatus('✅ ' + r.rows.length + '곳을 넣었습니다 (아직 비공개)');
+          renderAdminConsole();
+        });
+      });
+    });
+
     Array.prototype.forEach.call(document.querySelectorAll('#modalBody .pcPlay'), function(b) {
       b.addEventListener('click', function() {
         var cam = parkCamByKey(b.getAttribute('data-k'));
@@ -5963,7 +6073,20 @@
       // 된 답은 목록을 콘솔 밖 자기 화면으로 빼는 것이다(검토 중).
       '<details style="margin-top:6px;"><summary style="cursor:pointer;font-size:12px;color:#475569;">' +
       parkCamSummary() + '</summary><div style="margin-top:6px;">' +
-      parkCamAdminRows() + '</div></details>' +
+      parkCamAdminRows() +
+      '<div style="margin-top:10px;padding:10px 12px;background:#f8fafc;border-radius:8px;">' +
+      '<div style="font-size:12px;font-weight:700;color:#334155;margin-bottom:4px;">한꺼번에 넣기</div>' +
+      '<div style="font-size:11.5px;color:#64748b;line-height:1.7;margin-bottom:6px;">' +
+      '한 줄에 하나씩, <b>이름 + 영상주소</b> 또는 <b>이름 + 좌표</b>를 붙여넣으세요. 둘 다 적어도 됩니다.<br>' +
+      '순서·구분기호는 아무래도 괜찮습니다. 이름은 괄호 안 짧은 이름(백록담)으로도 찾습니다.<br>' +
+      '<span style="color:#94a3b8;">예) 백록담  https://…/playlist.m3u8  33.3617, 126.5292</span></div>' +
+      '<textarea id="admParkBulk" rows="5" placeholder="백록담  https://hallacctv.kr/live/cctv01.stream_360p/playlist.m3u8" ' +
+      'style="width:100%;box-sizing:border-box;padding:8px;border:1px solid #cbd5e1;border-radius:6px;' +
+      'font-size:11.5px;font-family:inherit;resize:vertical;"></textarea>' +
+      '<button id="admParkBulkBtn" style="margin-top:6px;border:none;border-radius:6px;padding:7px 12px;' +
+      'font-size:12px;cursor:pointer;background:#1f2937;color:#fff;">확인하기</button>' +
+      '<div id="admParkBulkOut"></div>' +
+      '</div></details>' +
 
       '<div style="margin:18px 0 2px;padding-top:12px;border-top:1px solid #e2e8f0;">' +
       '<div style="font-size:11.5px;color:#94a3b8;margin-bottom:10px;">지금 이 화면의 판 번호 — <b style="color:#475569;">' + NOWTHERE_VERSION + '</b></div>' +
