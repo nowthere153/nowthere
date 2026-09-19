@@ -555,7 +555,7 @@
 <div id="parkPlaceBar">
   <div style="min-width:0;">
     <div id="parkPlaceMsg" style="font-size:13px;font-weight:700;"></div>
-    <div style="font-size:11.5px;color:#cbd5e1;margin-top:2px;">화면에 보이는 그곳을 누르세요 · 검색으로 그 지역까지 옮길 수 있어요</div>
+    <div id="parkPlaceSub" style="font-size:11.5px;color:#cbd5e1;margin-top:2px;">화면에 보이는 그곳을 누르세요 · 검색으로 그 지역까지 옮길 수 있어요</div>
   </div>
   <button type="button" id="parkPlaceCancel">그만두기</button>
 </div>
@@ -672,7 +672,7 @@
   // 생기면 재사용 가능) index.html에서는 호출하지 않음.
   // 배포된 파일이 최신인지 콘솔에서 한 줄로 확인하기 위한 표시.
   // 같은 이유로 여러 번 헛돌아서(옛 파일이 올라간 줄 모르고 디버깅) 넣어둠.
-  var NOWTHERE_VERSION = 'v2026-09-18k (한꺼번에 넣기)';
+  var NOWTHERE_VERSION = 'v2026-09-19a (주제 자리 · 대표 범위)';
   console.log('[NowThere] ' + NOWTHERE_VERSION);
 
   var CCTV_PROXY_BASE_URL = 'https://api.nowthere.net';
@@ -5558,9 +5558,36 @@
     { k: 'halla5', t: '한라산 탐방로(1100도로)', u: 'https://www.jeju.go.kr/tool/halla/cctv_05.html', p: '제주특별자치도' }
   ];
   var PARK_CAM_PROVIDER = '국립공원공단';   // 제공기관이 줄에 없을 때의 기본값
+
+  // ---------------------------------------------------------------------------
+  // 대표 범위 (2026-09-19)
+  // ---------------------------------------------------------------------------
+  // ⚠️ 교통 카메라는 찍는 곳과 찍히는 곳이 거의 같아서 구분할 일이 없었다. 산·바다
+  // 카메라는 다르다 - 울산바위를 보는 카메라는 울산바위에 없고, 백록담 화면에는 산
+  // 전체가 들어온다. 좌표 하나로 박아두면 3km 떨어진 스팟에 "가장 가까운 카메라"로
+  // 뽑히는데 정작 그 화면에는 그 스팟이 없다. 비어 있는 것보다 나쁜 연결이 된다.
+  // 그래서 화면마다 "이 그림이 책임질 수 있는 거리"를 관리자가 눈으로 정한다.
+  // match:false 인 것은 거리 매칭 후보에서 아예 뺀다 - 풍경 목록으로만 닿는다.
+  var PARK_SCOPES = [
+    { key: 'near', label: '근경', km: 0.3, match: true,  hint: '카메라 바로 앞 (교통·포구)' },
+    { key: 'mid',  label: '중경', km: 1,   match: true,  hint: '한 동네 (해수욕장·항만)' },
+    { key: 'far',  label: '원경', km: 5,   match: false, hint: '멀리 보이는 대상 (울산바위·설천봉)' },
+    { key: 'wide', label: '광역', km: 0,   match: false, hint: '산 전체·지역 전체 (백록담)' }
+  ];
+  var PARK_SCOPE_KEYS = PARK_SCOPES.map(function(x) { return x.key; });
+  function parkScopeOf(key) {
+    var f = PARK_SCOPES.filter(function(x) { return x.key === key; });
+    return f[0] || PARK_SCOPES[0];
+  }
+  function parkScopeText(sc) {
+    var s0 = parkScopeOf(sc);
+    if (s0.key === 'wide') return '이 화면은 지역 전체를 봅니다';
+    return '이 화면이 대표하는 범위 · 약 ' + (s0.km < 1 ? (s0.km * 1000) + 'm' : s0.km + 'km');
+  }
   var parkCamState = {};      // key -> { lat, lng, on }  · config/settings.parkCams
   var parkCamMarkers = [];
   var parkPlacingKey = null;
+  var parkPlacingTarget = 'view';
 
   function parkCamsAll() {
     return PARK_CAM_SEED.concat(JEJU_HALLA_SEED).map(function(s) {
@@ -5569,8 +5596,14 @@
         key: s.k, title: s.t, url: s.u || '',
         provider: s.p || PARK_CAM_PROVIDER,
         stream: (typeof st.stream === 'string') ? st.stream : '',
+        // 핀이 서는 자리 = 주제(화면에 보이는 곳). 카메라가 선 자리가 아니다.
         lat: (typeof st.lat === 'number') ? st.lat : null,
         lng: (typeof st.lng === 'number') ? st.lng : null,
+        // 카메라가 선 자리. 알면 적고 모르면 비운다.
+        camLat: (typeof st.camLat === 'number') ? st.camLat : null,
+        camLng: (typeof st.camLng === 'number') ? st.camLng : null,
+        scope: PARK_SCOPE_KEYS.indexOf(st.scope) >= 0 ? st.scope : 'near',
+        nopin: st.nopin === true,
         on: st.on === true
       };
     });
@@ -5591,6 +5624,7 @@
     parkCamMarkers.forEach(mapRemoveMarker);
     parkCamMarkers = [];
     parkCamsAll().forEach(function(c) {
+      if (c.nopin) return;                    // 주제를 한 곳으로 정할 수 없는 화면
       if (c.lat == null || c.lng == null) return;
       if (!c.on && !isAdmin) return;
       var m = mapCreateParkMarker(c);
@@ -5617,6 +5651,24 @@
       yAnchor: 0.5, zIndex: 3, clickable: true
     });
   }
+  // 화면에 적는 이름. 핀은 주제 자리에 서므로, 그것이 "보이는 곳"임을 이름이 말해야
+  // 오해가 없다. 카메라 자리를 아는 경우에만 뒤에 덧붙인다 - 모르면 안 쓴다.
+  // 한글 조사를 받침에 맞춰 고른다. "울산바위이(가)"처럼 두 개를 다 적어두면
+  // 읽는 사람이 한 번 걸린다 - 우리가 알 수 있는 것은 우리가 정한다.
+  function koSubjectParticle(word) {
+    var ch = String(word || '').replace(/[)\]\s]+$/, '').slice(-1);
+    var code = ch.charCodeAt(0);
+    if (!(code >= 0xAC00 && code <= 0xD7A3)) return '가';   // 한글이 아니면 흔한 쪽
+    return ((code - 0xAC00) % 28) ? '이' : '가';
+  }
+  function parkCamDisplayName(cam) {
+    var place = shortParkName(cam.title);
+    var base = place + koSubjectParticle(place) + ' 보이는 곳';
+    var sc = parkScopeOf(cam.scope);
+    if (sc.key === 'near') base = cam.title;   // 근경은 찍는 곳과 찍히는 곳이 같다
+    return base;
+  }
+
   // "설악산국립공원(울산바위)" → "울산바위". 핀 위에서는 괄호 안이 그 자리의 이름이다.
   function shortParkName(title) {
     var m = /\(([^)]+)\)\s*$/.exec(title || '');
@@ -5633,7 +5685,7 @@
       // 자리를 아직 안 잡았으면 좌표가 없다. 그래도 재생은 되어야 한다 - 화면을
       // 봐야 어디인지 알고, 알아야 자리를 잡는다. 순서가 그 반대가 아니다.
       openCctvPopup({
-        name: cam.title,
+        name: parkCamDisplayName(cam),
         lat: (cam.lat == null ? undefined : cam.lat),
         lng: (cam.lng == null ? undefined : cam.lng),
         imageUrl: '', streamUrl: cam.stream, liveFirst: true,
@@ -5643,7 +5695,10 @@
     }
     var body =
       '<p style="margin:0 0 4px;font-size:15px;font-weight:700;color:#111827;">' + escapeHtml(cam.title) + '</p>' +
-      '<p style="margin:0 0 12px;font-size:11.5px;color:#94a3b8;">영상 제공 · ' + escapeHtml(cam.provider || PARK_CAM_PROVIDER) + '</p>' +
+      '<p style="margin:0 0 12px;font-size:11.5px;color:#94a3b8;">영상 제공 · ' + escapeHtml(cam.provider || PARK_CAM_PROVIDER) +
+      '<br>' + escapeHtml(parkScopeText(cam.scope)) +
+      (cam.camLat != null ? ' · 카메라는 여기서 ' + formatKmLabel(approxKmDistance(cam.lat, cam.lng, cam.camLat, cam.camLng)) + ' 떨어진 곳' : '') +
+      '</p>' +
       (cam.url
         ? '<p style="font-size:12.5px;color:#475569;line-height:1.7;margin-bottom:12px;">' +
           '이 화면은 제공처에서 직접 보여드립니다. 아래를 누르면 <b>' + escapeHtml(cam.provider || PARK_CAM_PROVIDER) + '</b> 페이지가 새 탭으로 열립니다.</p>' +
@@ -5657,36 +5712,46 @@
   }
 
   // ── 자리 잡기 ───────────────────────────────────────────────────────────────
-  function startParkPlacing(key) {
+  // target: 'view'(주제 = 화면에 보이는 곳 · 핀이 서는 자리) | 'cam'(카메라가 선 자리)
+  function startParkPlacing(key, target) {
     var cam = parkCamByKey(key);
     if (!cam) return;
     parkPlacingKey = key;
+    parkPlacingTarget = (target === 'cam') ? 'cam' : 'view';
     document.getElementById('modal').classList.remove('show');
     document.getElementById('modalBody').innerHTML = '';
     var bar = document.getElementById('parkPlaceBar');
     var msg = document.getElementById('parkPlaceMsg');
-    if (msg) msg.textContent = '⛰ ' + cam.title + '의 자리를 눌러주세요';
+    var sub = document.getElementById('parkPlaceSub');
+    if (msg) msg.textContent = (parkPlacingTarget === 'cam' ? '📷 ' : '⛰ ') + cam.title +
+      (parkPlacingTarget === 'cam' ? ' · 카메라가 선 자리를 눌러주세요' : ' · 화면에 보이는 그곳을 눌러주세요');
+    if (sub) sub.textContent = (parkPlacingTarget === 'cam')
+      ? '모르면 그냥 그만두세요. 비워두는 편이 틀리게 적는 것보다 낫습니다.'
+      : '핀은 여기 섭니다. 사용자는 카메라가 아니라 그 장소를 찾습니다.';
     if (bar) bar.classList.add('show');
   }
   function stopParkPlacing() {
     parkPlacingKey = null;
+    parkPlacingTarget = 'view';
     var bar = document.getElementById('parkPlaceBar');
     if (bar) bar.classList.remove('show');
   }
   function applyParkPlacingAt(pos) {
-    var key = parkPlacingKey;
+    var key = parkPlacingKey, target = parkPlacingTarget;
     var cam = parkCamByKey(key);
     stopParkPlacing();
     if (!cam) return;
     var st = parkCamState[key] || {};
-    st.lat = pos.lat; st.lng = pos.lng;
+    if (target === 'cam') { st.camLat = pos.lat; st.camLng = pos.lng; }
+    else { st.lat = pos.lat; st.lng = pos.lng; st.nopin = false; }
     if (typeof st.on !== 'boolean') st.on = false;   // 자리를 잡아도 공개는 따로 정한다
     parkCamState[key] = st;
     saveParkCams(function(ok) {
       if (!ok) return;
       drawParkCams();
-      showStatus('⛰ ' + shortParkName(cam.title) + ' 자리를 저장했습니다 (아직 비공개)');
-      setTimeout(renderAdminConsole, 400);
+      showStatus((target === 'cam' ? '📷 카메라 자리를 저장했습니다 · ' : '⛰ 주제 자리를 저장했습니다 · ') +
+        shortParkName(cam.title));
+      setTimeout(function() { openParkCamEdit(key); }, 400);
     });
   }
 
@@ -5728,7 +5793,15 @@
         rest = rest.replace(mGeo[0], ' ');
       }
 
-      // 3) 남은 글자로 카메라를 찾는다
+      // 3) 범위 낱말 - 근경/중경/원경/광역
+      var scope = '';
+      var mSc = rest.match(/(근경|중경|원경|광역)/);
+      if (mSc) {
+        var found = PARK_SCOPES.filter(function(x) { return x.label === mSc[1]; })[0];
+        if (found) { scope = found.key; rest = rest.replace(mSc[0], ' '); }
+      }
+
+      // 4) 남은 글자로 카메라를 찾는다
       var name = rest.replace(/[\t,|]+/g, ' ').replace(/\s+/g, ' ').trim();
       var key = name.replace(/\s/g, '');
       var hit = null;
@@ -5743,11 +5816,11 @@
       });
       // 못 읽은 줄은 왜 못 읽었는지 함께 적는다. 이유 없이 되돌려주면 고칠 수가 없다.
       if (!hit) { out.unmatched.push(line + '  ← 목록에 없는 이름입니다'); return; }
-      if (!stream && lat === null) {
+      if (!stream && lat === null && !scope) {
         out.unmatched.push(line + (httpOnly ? '  ← http 주소는 쓸 수 없습니다' : '  ← 넣을 것이 없습니다'));
         return;
       }
-      out.rows.push({ key: hit.key, title: hit.title, stream: stream, lat: lat, lng: lng, httpOnly: httpOnly });
+      out.rows.push({ key: hit.key, title: hit.title, stream: stream, lat: lat, lng: lng, scope: scope, httpOnly: httpOnly });
     });
     return out;
   }
@@ -5762,49 +5835,148 @@
   }
 
   function parkCamAdminRows() {
+    // ⚠️ 2026-09-19: 줄마다 버튼을 넷씩 달면 스물두 줄이 읽히지 않는다. 줄에는
+    // "지금 어떤 상태인가"만 두고, 손보는 일은 이름을 눌러 여는 창으로 옮긴다.
+    // 목록 화면은 훑는 곳이지 고치는 곳이 아니다.
     return parkCamsAll().map(function(c) {
-      var placed = (c.lat != null && c.lng != null);
-      var where = placed
-        ? '<span style="color:#0a7d2c;">' + c.lat.toFixed(4) + ', ' + c.lng.toFixed(4) + '</span>'
-        : '<span style="color:#b45309;">자리 없음</span>';
-      return '<div style="display:flex;align-items:center;gap:8px;padding:7px 0;border-bottom:1px solid #f1f5f9;flex-wrap:wrap;">' +
+      var bits = [];
+      if (c.nopin) bits.push('<span style="color:#7c3aed;">핀 없음</span>');
+      else if (c.lat != null) bits.push('<span style="color:#0a7d2c;">📍 자리 잡음</span>');
+      else bits.push('<span style="color:#b45309;">자리 없음</span>');
+      bits.push('<span style="color:#64748b;">' + parkScopeOf(c.scope).label + '</span>');
+      bits.push(c.stream ? '<span style="color:#0f766e;">🎥 재생</span>'
+                         : (c.url ? '<span style="color:#94a3b8;">링크</span>'
+                                  : '<span style="color:#b45309;">점검 중</span>'));
+      if (c.on) bits.push('<span style="color:#0a7d2c;font-weight:700;">공개</span>');
+      return '<div style="display:flex;align-items:center;gap:8px;padding:7px 0;border-bottom:1px solid #f1f5f9;">' +
         '<span style="flex:1 1 180px;min-width:0;font-size:12px;color:#334155;">' + escapeHtml(c.title) +
         '<br><span style="font-size:11px;color:#94a3b8;">' + escapeHtml(c.provider) + ' · </span>' +
-        '<span style="font-size:11px;">' + where +
-        (c.stream ? ' <span style="color:#0a7d2c;">· 우리 화면에서 재생</span>'
-                  : ' <span style="color:#94a3b8;">· 링크로 보냄</span>') + '</span></span>' +
-        // ⚠️ 2026-09-18 고침: 영상 주소를 넣었는데도 '보기'가 제공처 페이지를 열었다.
-        // 지도 핀 쪽만 고치고 이 버튼을 안 고쳤다 - 같은 말("보기")이 두 가지 다른
-        // 일을 하고 있었다. 영상이 있으면 우리 화면에서 틀어 그 자리에서 확인하게 한다.
+        '<span style="font-size:11px;">' + bits.join(' <span style="color:#e2e8f0;">·</span> ') + '</span></span>' +
         (c.stream
           ? '<button class="pcPlay" data-k="' + escapeAttr(c.key) + '" style="flex:0 0 auto;padding:5px 10px;' +
-            'border:none;border-radius:6px;font-size:11.5px;cursor:pointer;background:#0f766e;color:#fff;">▶ 재생</button>'
+            'border:none;border-radius:6px;font-size:11.5px;cursor:pointer;background:#0f766e;color:#fff;">▶</button>'
           : '') +
-        (c.url
-          ? '<a href="' + escapeAttr(c.url) + '" target="_blank" rel="noopener noreferrer" ' +
-            'style="flex:0 0 auto;padding:5px 10px;border:1px solid #cbd5e1;border-radius:6px;' +
-            'font-size:11.5px;color:#475569;text-decoration:none;background:#fff;">' +
-            (c.stream ? '페이지' : '보기') + '</a>'
-          : (c.stream ? '' : '<span style="flex:0 0 auto;font-size:11px;color:#b45309;">점검 중</span>')) +
-        '<button class="pcPlace" data-k="' + escapeAttr(c.key) + '" style="flex:0 0 auto;padding:5px 10px;' +
-        'border:1px solid #cbd5e1;border-radius:6px;font-size:11.5px;cursor:pointer;background:#fff;color:#475569;">' +
-        (placed ? '자리 고치기' : '자리 잡기') + '</button>' +
-        '<button class="pcStream" data-k="' + escapeAttr(c.key) + '" style="flex:0 0 auto;padding:5px 10px;' +
-        'border:1px solid ' + (c.stream ? '#0a7d2c' : '#cbd5e1') + ';border-radius:6px;font-size:11.5px;' +
-        'cursor:pointer;background:#fff;color:' + (c.stream ? '#0a7d2c' : '#475569') + ';">' +
-        (c.stream ? '🎥 영상 있음' : '영상 주소') + '</button>' +
-        (placed
-          ? '<button class="pcOn" data-k="' + escapeAttr(c.key) + '" style="flex:0 0 auto;padding:5px 10px;border:none;' +
-            'border-radius:6px;font-size:11.5px;cursor:pointer;background:' + (c.on ? '#0a7d2c' : '#e2e8f0') +
-            ';color:' + (c.on ? '#fff' : '#475569') + ';">' + (c.on ? '공개' : '비공개') + '</button>'
-          : '') +
+        '<button class="pcEdit" data-k="' + escapeAttr(c.key) + '" style="flex:0 0 auto;padding:5px 12px;' +
+        'border:1px solid #cbd5e1;border-radius:6px;font-size:11.5px;cursor:pointer;background:#fff;color:#475569;">손보기</button>' +
         '</div>';
     }).join('');
   }
 
+  // 카메라 한 대를 손보는 창. 줄에서 못 하던 일을 여기서 전부 한다.
+  function openParkCamEdit(key) {
+    var c = parkCamByKey(key);
+    if (!c) return;
+    var sc = parkScopeOf(c.scope);
+    function row(label, value, btnId, btnText, extra) {
+      return '<div style="display:flex;align-items:center;gap:8px;padding:9px 0;border-bottom:1px solid #f1f5f9;">' +
+        '<span style="flex:1 1 auto;min-width:0;font-size:12.5px;color:#334155;"><b>' + label + '</b>' +
+        '<br><span style="font-size:11.5px;color:#64748b;">' + value + '</span></span>' +
+        (btnId ? '<button id="' + btnId + '" style="flex:0 0 auto;padding:6px 12px;border:1px solid #cbd5e1;' +
+          'border-radius:7px;font-size:12px;cursor:pointer;background:#fff;color:#475569;">' + btnText + '</button>' : '') +
+        (extra || '') + '</div>';
+    }
+    var body =
+      '<p style="margin:0 0 3px;font-size:15px;font-weight:700;color:#111827;">' + escapeHtml(c.title) + '</p>' +
+      '<p style="margin:0 0 12px;font-size:11.5px;color:#94a3b8;">' + escapeHtml(c.provider) + '</p>' +
+
+      row('주제 자리 <span style="font-weight:400;color:#94a3b8;">— 화면에 보이는 곳</span>',
+          c.nopin ? '일부러 핀을 두지 않았습니다 (풍경 목록에만)'
+                  : (c.lat != null ? c.lat.toFixed(4) + ', ' + c.lng.toFixed(4) + ' · 핀이 여기 섭니다'
+                                   : '<span style="color:#b45309;">아직 없습니다</span>'),
+          'pceView', c.lat != null ? '고치기' : '잡기') +
+
+      row('카메라 자리 <span style="font-weight:400;color:#94a3b8;">— 몰라도 됩니다</span>',
+          c.camLat != null
+            ? c.camLat.toFixed(4) + ', ' + c.camLng.toFixed(4) +
+              (c.lat != null ? ' · 주제에서 ' + formatKmLabel(approxKmDistance(c.lat, c.lng, c.camLat, c.camLng)) : '')
+            : '비어 있습니다 — 모르면 비워두는 편이 낫습니다',
+          'pceCam', c.camLat != null ? '고치기' : '잡기') +
+
+      '<div style="padding:9px 0;border-bottom:1px solid #f1f5f9;">' +
+      '<div style="font-size:12.5px;color:#334155;font-weight:700;margin-bottom:6px;">대표 범위' +
+      '<span style="font-weight:400;color:#94a3b8;"> — 이 그림이 책임질 수 있는 거리</span></div>' +
+      '<div style="display:flex;gap:5px;flex-wrap:wrap;">' +
+      PARK_SCOPES.map(function(x) {
+        var on = (x.key === sc.key);
+        return '<button class="pceScope" data-s="' + x.key + '" style="flex:1 1 auto;padding:7px 8px;border:none;' +
+          'border-radius:7px;font-size:11.5px;cursor:pointer;background:' + (on ? '#0f766e' : '#e2e8f0') +
+          ';color:' + (on ? '#fff' : '#475569') + ';">' + x.label +
+          (x.km ? '<br><span style="font-size:10px;opacity:.85">' + (x.km < 1 ? x.km * 1000 + 'm' : x.km + 'km') + '</span>'
+                : '<br><span style="font-size:10px;opacity:.85">지역 전체</span>') + '</button>';
+      }).join('') + '</div>' +
+      '<div style="font-size:11.5px;color:#64748b;margin-top:6px;line-height:1.6;">' + escapeHtml(sc.hint) +
+      (sc.match ? '' : '<br><b>가장 가까운 카메라 후보에서 빠집니다.</b> 풍경 목록으로만 닿습니다 — ' +
+        '멀리 보이는 화면을 가까운 곳 대표로 내보내면 틀린 연결이 됩니다.') + '</div></div>' +
+
+      row('영상 주소', c.stream ? '<span style="color:#0f766e;">우리 화면에서 재생합니다</span>'
+                                : '비어 있습니다 — 제공처 페이지로 링크합니다',
+          'pceStream', c.stream ? '고치기' : '넣기') +
+
+      row('핀 없이 목록에만',
+          c.nopin ? '<span style="color:#7c3aed;">지도에 안 나옵니다</span>'
+                  : '지도에 핀으로 나옵니다 (주제 자리가 있을 때)',
+          'pceNopin', c.nopin ? '되돌리기' : '핀 없애기') +
+
+      row('공개', c.on ? '<span style="color:#0a7d2c;">모두에게 보입니다</span>' : '관리자에게만 보입니다',
+          'pceOn', c.on ? '비공개로' : '공개로') +
+
+      (c.url ? '<p style="margin-top:12px;font-size:11.5px;color:#94a3b8;">' +
+        '<a href="' + escapeAttr(c.url) + '" target="_blank" rel="noopener noreferrer" style="color:#475569;">제공처 페이지 열기 ↗</a></p>' : '');
+
+    openModal('카메라 손보기', body);
+    setModalBack(renderAdminConsole, '관리자 콘솔');
+
+    function patch(fn, msg) {
+      var st = parkCamState[key] || {};
+      fn(st);
+      if (typeof st.on !== 'boolean') st.on = false;
+      parkCamState[key] = st;
+      saveParkCams(function(ok) {
+        if (!ok) return;
+        drawParkCams();
+        if (msg) showStatus(msg);
+        openParkCamEdit(key);
+      });
+    }
+    var b;
+    b = document.getElementById('pceView');
+    if (b) b.addEventListener('click', function() { startParkPlacing(key, 'view'); });
+    b = document.getElementById('pceCam');
+    if (b) b.addEventListener('click', function() { startParkPlacing(key, 'cam'); });
+    b = document.getElementById('pceNopin');
+    if (b) b.addEventListener('click', function() {
+      patch(function(st) { st.nopin = !(st.nopin === true); },
+            (c.nopin ? '지도에 다시 올립니다.' : '지도에서 내리고 풍경 목록에만 둡니다.'));
+    });
+    b = document.getElementById('pceOn');
+    if (b) b.addEventListener('click', function() {
+      patch(function(st) { st.on = !(st.on === true); }, c.on ? '비공개로 두었습니다.' : '✅ 공개로 바꿨습니다.');
+    });
+    b = document.getElementById('pceStream');
+    if (b) b.addEventListener('click', function() {
+      var v = window.prompt(c.title + '\n\n이 카메라의 영상 주소(.m3u8)를 넣으세요.\n' +
+        '비우고 확인을 누르면 링크 방식으로 되돌아갑니다.\n\n' +
+        '※ https 로 시작해야 합니다. http 는 우리 사이트(https)에서 막힙니다.', c.stream || '');
+      if (v === null) return;
+      v = String(v).trim();
+      if (v && !/^https:\/\//i.test(v)) {
+        alert('https 로 시작하는 주소만 쓸 수 있습니다.\n\nhttp 주소는 브라우저가 막아서 화면이 안 나옵니다.');
+        return;
+      }
+      patch(function(st) { if (v) st.stream = v; else delete st.stream; },
+            v ? '🎥 영상 주소를 저장했습니다.' : '링크 방식으로 되돌렸습니다.');
+    });
+    Array.prototype.forEach.call(document.querySelectorAll('#modalBody .pceScope'), function(btn) {
+      btn.addEventListener('click', function() {
+        var v = btn.getAttribute('data-s');
+        patch(function(st) { st.scope = v; }, '범위를 “' + parkScopeOf(v).label + '”으로 두었습니다.');
+      });
+    });
+  }
+
   function bindParkCamAdmin() {
-    Array.prototype.forEach.call(document.querySelectorAll('#modalBody .pcPlace'), function(b) {
-      b.addEventListener('click', function() { startParkPlacing(b.getAttribute('data-k')); });
+    Array.prototype.forEach.call(document.querySelectorAll('#modalBody .pcEdit'), function(b) {
+      b.addEventListener('click', function() { openParkCamEdit(b.getAttribute('data-k')); });
     });
     // 한꺼번에 넣기 - 넣기 전에 무엇이 바뀌는지 먼저 보여준다. 스물두 줄을 한 번에
     // 덮어쓰는 일이라, 눈으로 확인하지 않고 저장하면 되돌리는 값이 크다.
@@ -5823,6 +5995,7 @@
             escapeHtml(x.title) +
             (x.stream ? ' <span style="color:#0f766e;">🎥 영상</span>' : '') +
             (x.lat !== null ? ' <span style="color:#0a7d2c;">📍 ' + x.lat.toFixed(4) + ', ' + x.lng.toFixed(4) + '</span>' : '') +
+            (x.scope ? ' <span style="color:#64748b;">' + escapeHtml(parkScopeOf(x.scope).label) + '</span>' : '') +
             '</div>';
         }).join('');
       }
@@ -5842,7 +6015,8 @@
         r.rows.forEach(function(x) {
           var st = parkCamState[x.key] || {};
           if (x.stream) st.stream = x.stream;
-          if (x.lat !== null) { st.lat = x.lat; st.lng = x.lng; }
+          if (x.lat !== null) { st.lat = x.lat; st.lng = x.lng; st.nopin = false; }
+          if (x.scope) st.scope = x.scope;
           if (typeof st.on !== 'boolean') st.on = false;   // 넣어도 공개는 따로 정한다
           parkCamState[x.key] = st;
         });
@@ -5868,47 +6042,8 @@
 
     // 영상 주소 넣기. 짐작으로 채우지 않는다 - 페이지 번호와 영상 번호가 다른 것을
     // 실제로 확인했다(cctv_05.html 이 cctv03.stream 을 쓴다). 화면을 본 사람이 넣는다.
-    Array.prototype.forEach.call(document.querySelectorAll('#modalBody .pcStream'), function(b) {
-      b.addEventListener('click', function() {
-        var k = b.getAttribute('data-k');
-        var cam = parkCamByKey(k);
-        if (!cam) return;
-        var cur = cam.stream || '';
-        var v = window.prompt(
-          cam.title + '\n\n이 카메라의 영상 주소(.m3u8)를 넣으세요.\n' +
-          '비우고 확인을 누르면 링크 방식으로 되돌아갑니다.\n\n' +
-          '※ https 로 시작해야 합니다. http 는 우리 사이트(https)에서 막힙니다.', cur);
-        if (v === null) return;                       // 취소
-        v = String(v).trim();
-        if (v && !/^https:\/\//i.test(v)) {
-          alert('https 로 시작하는 주소만 쓸 수 있습니다.\n\nhttp 주소는 브라우저가 막아서 화면이 안 나옵니다.');
-          return;
-        }
-        var st = parkCamState[k] || {};
-        if (v) st.stream = v; else delete st.stream;
-        parkCamState[k] = st;
-        saveParkCams(function(ok) {
-          if (!ok) return;
-          showStatus(v ? '🎥 영상 주소를 저장했습니다. 이제 우리 화면에서 재생합니다.'
-                       : '링크 방식으로 되돌렸습니다.');
-          renderAdminConsole();
-        });
-      });
-    });
-    Array.prototype.forEach.call(document.querySelectorAll('#modalBody .pcOn'), function(b) {
-      b.addEventListener('click', function() {
-        var k = b.getAttribute('data-k');
-        var st = parkCamState[k] || {};
-        st.on = !(st.on === true);
-        parkCamState[k] = st;
-        saveParkCams(function(ok) {
-          if (!ok) return;
-          drawParkCams();
-          showStatus(st.on ? '✅ 공개로 바꿨습니다.' : '비공개로 두었습니다.');
-          renderAdminConsole();
-        });
-      });
-    });
+    
+    
   }
 
   function renderAdminConsole() {
@@ -6077,7 +6212,8 @@
       '<div style="margin-top:10px;padding:10px 12px;background:#f8fafc;border-radius:8px;">' +
       '<div style="font-size:12px;font-weight:700;color:#334155;margin-bottom:4px;">한꺼번에 넣기</div>' +
       '<div style="font-size:11.5px;color:#64748b;line-height:1.7;margin-bottom:6px;">' +
-      '한 줄에 하나씩, <b>이름 + 영상주소</b> 또는 <b>이름 + 좌표</b>를 붙여넣으세요. 둘 다 적어도 됩니다.<br>' +
+      '한 줄에 하나씩, <b>이름 + 영상주소 + 좌표 + 범위</b>를 붙여넣으세요. 있는 것만 적어도 됩니다.<br>' +
+      '범위는 <b>근경·중경·원경·광역</b> 중 하나를 낱말로 적으면 됩니다.<br>' +
       '순서·구분기호는 아무래도 괜찮습니다. 이름은 괄호 안 짧은 이름(백록담)으로도 찾습니다.<br>' +
       '<span style="color:#94a3b8;">예) 백록담  https://…/playlist.m3u8  33.3617, 126.5292</span></div>' +
       '<textarea id="admParkBulk" rows="5" placeholder="백록담  https://hallacctv.kr/live/cctv01.stream_360p/playlist.m3u8" ' +
