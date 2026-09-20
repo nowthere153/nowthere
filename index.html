@@ -672,7 +672,7 @@
   // 생기면 재사용 가능) index.html에서는 호출하지 않음.
   // 배포된 파일이 최신인지 콘솔에서 한 줄로 확인하기 위한 표시.
   // 같은 이유로 여러 번 헛돌아서(옛 파일이 올라간 줄 모르고 디버깅) 넣어둠.
-  var NOWTHERE_VERSION = 'v2026-09-20a (좌표 검색)';
+  var NOWTHERE_VERSION = 'v2026-09-20b (찾아간 자리 표시 · 위치 오차)';
   console.log('[NowThere] ' + NOWTHERE_VERSION);
 
   var CCTV_PROXY_BASE_URL = 'https://api.nowthere.net';
@@ -2370,7 +2370,7 @@
     if (pt0) {
       mapSetCenter(pt0.lat, pt0.lng);
       if (mapGetLevel() > 4) mapSetLevel(4);
-      showStatus('📍 ' + pt0.lat.toFixed(6) + ', ' + pt0.lng.toFixed(6) + ' 로 옮겼습니다');
+      showStatus('📍 ' + pt0.lat.toFixed(6) + ', ' + pt0.lng.toFixed(6) + ' 로 옮겼습니다 · 눌러서 등록하세요');
       return;
     }
     showStatus('🔎 "' + query + '"(으)로 지도를 옮기는 중…');
@@ -2523,6 +2523,77 @@
   }
 
 
+
+  // ---------------------------------------------------------------------------
+  // 찾아간 자리 표시 (2026-09-20)
+  // ---------------------------------------------------------------------------
+  // ⚠️ 좌표로 옮기면 화면만 움직이고 어디인지 표시가 없었다. 지명은 지도가 이미
+  // 이름을 갖고 있어서 괜찮지만(네이버도 지명에는 핀을 안 찍는다), 주소와 좌표는
+  // 지도에 아무 표시가 없어서 "그래서 어디?"가 된다.
+  //
+  // 그리고 이 자리는 표시만 할 곳이 아니다. 여기까지 온 사람은 그곳이 궁금해서 온
+  // 것이므로, 우리가 가진 것을 그 자리에서 내민다 - 주변 CCTV(지금)와 남기기(그때).
+  // 강제로 열지 않고 내밀기만 한다. 지도만 보려고 온 사람도 있다.
+  var searchPointOverlay = null;
+  function clearSearchPoint() {
+    if (searchPointOverlay) { searchPointOverlay.setMap(null); searchPointOverlay = null; }
+  }
+  function showSearchPoint(lat, lng, label) {
+    clearSearchPoint();
+    if (!(window.kakao && kakao.maps && kakao.maps.CustomOverlay)) return;
+    var wrap = document.createElement('div');
+    wrap.style.cssText = 'position:relative;';
+    var card = document.createElement('div');
+    card.style.cssText = 'background:#111827;color:#fff;border-radius:12px;padding:8px 10px;' +
+      'box-shadow:0 3px 12px rgba(0,0,0,0.35);font-size:11.5px;line-height:1.5;' +
+      'max-width:240px;white-space:normal;';
+    card.innerHTML =
+      '<div style="display:flex;align-items:flex-start;gap:6px;">' +
+      '<span id="spLabel" style="flex:1 1 auto;min-width:0;">' + escapeHtml(label || '') + '</span>' +
+      '<button type="button" id="spClose" aria-label="닫기" style="flex:0 0 auto;border:none;background:transparent;' +
+      'color:#94a3b8;font-size:14px;cursor:pointer;padding:0 2px;line-height:1;">×</button></div>' +
+      '<div style="display:flex;gap:5px;margin-top:7px;">' +
+      '<button type="button" id="spCctv" style="flex:1 1 0;border:none;border-radius:8px;padding:6px 8px;' +
+      'font-size:11.5px;font-weight:700;cursor:pointer;background:#fff;color:#111827;">📷 주변 CCTV</button>' +
+      '<button type="button" id="spLeave" style="flex:1 1 0;border:none;border-radius:8px;padding:6px 8px;' +
+      'font-size:11.5px;font-weight:700;cursor:pointer;background:rgba(255,255,255,0.18);color:#fff;">📍 여기에 남기기</button>' +
+      '</div>';
+    var tail = document.createElement('span');
+    tail.style.cssText = 'position:absolute;left:50%;bottom:-7px;margin-left:-6px;width:0;height:0;' +
+      'border-left:6px solid transparent;border-right:6px solid transparent;border-top:8px solid #111827;';
+    wrap.appendChild(card); wrap.appendChild(tail);
+
+    card.querySelector('#spClose').addEventListener('click', function(e) { e.stopPropagation(); clearSearchPoint(); });
+    card.querySelector('#spCctv').addEventListener('click', function(e) {
+      e.stopPropagation(); clearSearchPoint();
+      openNearestCctvAt(lat, lng, '이 자리의 지금', null);
+    });
+    card.querySelector('#spLeave').addEventListener('click', function(e) {
+      e.stopPropagation(); clearSearchPoint();
+      if (!placingMode) enterPlacingMode();
+      applyPlacingAt({ lat: lat, lng: lng });
+    });
+
+    searchPointOverlay = new kakao.maps.CustomOverlay({
+      position: mapLatLng(lat, lng), content: wrap, map: map,
+      yAnchor: 1.12, zIndex: 6, clickable: true
+    });
+
+    // 그 자리의 주소를 뒤에서 채운다. 좌표만 적어두면 사람에게는 아무 말도 아니다.
+    try {
+      new kakao.maps.services.Geocoder().coord2Address(lng, lat, function(res, st) {
+        if (st !== kakao.maps.services.Status.OK || !res || !res[0]) return;
+        var el = document.getElementById('spLabel');
+        if (!el) return;
+        var r = res[0];
+        var addr = (r.road_address && r.road_address.address_name) ||
+                   (r.address && r.address.address_name) || '';
+        if (addr) el.innerHTML = escapeHtml(addr) +
+          '<br><span style="color:#94a3b8;">' + lat.toFixed(6) + ', ' + lng.toFixed(6) + '</span>';
+      });
+    } catch (e) {}
+  }
+
   // ---------------------------------------------------------------------------
   // 좌표를 그대로 넣기 (2026-09-20)
   // ---------------------------------------------------------------------------
@@ -2550,13 +2621,14 @@
     var query = document.getElementById('searchInput').value.trim();
     if (!query) { showStatus('⚠️ 보고 싶은 지역이나 장소를 입력해주세요'); return; }
     bumpStat({ searches: 1 });
+    clearSearchPoint();
 
     // 좌표는 찾을 것이 없다. 이미 답이다 - 지오코더에 물어볼 이유가 없다.
     var pt = parseLatLngText(query);
     if (pt) {
       mapSetCenter(pt.lat, pt.lng);
       if (mapGetLevel() > 4) mapSetLevel(4);
-      showStatus('📍 ' + pt.lat.toFixed(6) + ', ' + pt.lng.toFixed(6) + ' 로 옮겼습니다');
+      showSearchPoint(pt.lat, pt.lng, pt.lat.toFixed(6) + ', ' + pt.lng.toFixed(6));
       return;
     }
 
@@ -2589,7 +2661,12 @@
     var geocoder = new kakao.maps.services.Geocoder();
     geocoder.addressSearch(query, function(result, status) {
       if (status === kakao.maps.services.Status.OK && result[0]) {
-        openDistrictWeatherView(query, { lat: parseFloat(result[0].y), lng: parseFloat(result[0].x) });
+        // ⚠️ 주소는 지도에 이름이 없다 - 어디인지 우리가 표시해줘야 한다.
+        // 지명(아래 keywordSearch)은 지도가 이미 이름을 그려주므로 찍지 않는다.
+        // 네이버도 같은 방식이고, 겹쳐 찍으면 같은 자리에 이름이 둘이 된다.
+        var ay = parseFloat(result[0].y), ax = parseFloat(result[0].x);
+        showSearchPoint(ay, ax, query);
+        openDistrictWeatherView(query, { lat: ay, lng: ax });
         return;
       }
       ps.keywordSearch(query, function(data, psStatus) {
@@ -2868,6 +2945,7 @@
   }
 
   function applyPlacingAt(pos) {
+    pendingFromGeo = false;   // 지도를 눌러 고른 자리는 현위치가 아니다
     if (pendingRelocate) {
       var targetId = pendingRelocate;
       pendingRelocate = null;
@@ -7109,18 +7187,31 @@
     }
     showStatus('📡 위치 확인 중...');
     navigator.geolocation.getCurrentPosition(function(pos) {
+      // ⚠️ 2026-09-20: accuracy(미터)를 지금까지 버리고 있었다. 브라우저가 주는
+      // 위치는 야외 GPS면 5~10m지만 실내·도심에서는 와이파이 측위라 50~100m도 흔하다.
+      // 그걸 말하지 않고 점 하나만 찍으면, 100m 틀린 자리를 정확한 자리로 읽게 된다.
+      // 크게 어긋날 때는 숫자로 말하고 직접 고치라고 한다 - 모르는 것을 아는 척하지
+      // 않는다는 원칙이 위치에도 그대로 적용된다.
+      var acc = (pos.coords && typeof pos.coords.accuracy === 'number') ? Math.round(pos.coords.accuracy) : null;
+      lastGeoAccuracy = acc;
       var here = { lat: pos.coords.latitude, lng: pos.coords.longitude };
       mapSetCenter(here.lat, here.lng);
-      mapSetLevel(3);
+      mapSetLevel(acc && acc > 200 ? 5 : 3);   // 많이 흐릿하면 그만큼 넓게 보여준다
 
       mapRemoveMarker(myLocationMarker);
       myLocationMarker = mapCreateLocationMarker(here.lat, here.lng);
 
       if (placingMode) {
         pendingLatLng = here;
+        pendingFromGeo = true;
         openRegisterForm();
+        if (acc !== null && acc > 60) {
+          showStatus('📡 이 위치는 ±' + acc + 'm 정도 오차가 있습니다 — 자리가 다르면 지도를 눌러 고쳐주세요');
+        }
       } else {
-        showStatus('현재 위치로 이동했습니다.');
+        showStatus(acc === null ? '현재 위치로 이동했습니다.'
+          : (acc <= 30 ? '현재 위치로 이동했습니다 (±' + acc + 'm)'
+                       : '현재 위치로 이동했습니다 · 오차 ±' + acc + 'm — 실내에서는 흐려집니다'));
       }
     }, function(err) {
       // 실패 사유를 구분해서 안내한다. 도메인이 바뀌면 위치 권한은 새 주소에 대해
@@ -7139,6 +7230,8 @@
     }, { enableHighAccuracy: true, timeout: 15000, maximumAge: 60000 });
   }
 
+  var pendingFromGeo = false;   // 이번 등록 자리가 현위치에서 온 것인가
+  var lastGeoAccuracy = null;   // 마지막으로 받은 현위치의 오차(m) - 등록 시 함께 남긴다
   var selectedCategory = null;
 
   function openRegisterForm() {
@@ -7285,6 +7378,10 @@
       // 없으면 그때는 늦는다.
       var geo = spotGeoFields(newSpot.lat, newSpot.lng);
       if (geo.geohash) newSpot.geohash = geo.geohash;
+      // ⚠️ 현위치로 잡은 자리면 그때의 오차를 함께 남긴다. 나중에 "현장에서 올린
+      // 것인가"를 판단할 때(개요 8행 ②, ID47) 이 숫자가 유일한 재료가 된다.
+      // 지금 안 남기면 그때 가서 만들 수 없다 - 격자 열쇠와 같은 이야기다.
+      if (typeof lastGeoAccuracy === 'number' && pendingFromGeo) newSpot.geoAccuracy = lastGeoAccuracy;
       if (info.type === 'youtube') newSpot.videoId = info.videoId;
       else newSpot.permalink = info.permalink;
       // 쇼츠처럼 세로 영상이면 표시할 때 9:16 틀로 그리기 위해 남겨둠(buildEmbedHtml 참고)
