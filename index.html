@@ -672,7 +672,7 @@
   // 생기면 재사용 가능) index.html에서는 호출하지 않음.
   // 배포된 파일이 최신인지 콘솔에서 한 줄로 확인하기 위한 표시.
   // 같은 이유로 여러 번 헛돌아서(옛 파일이 올라간 줄 모르고 디버깅) 넣어둠.
-  var NOWTHERE_VERSION = 'v2026-09-20b (찾아간 자리 표시 · 위치 오차)';
+  var NOWTHERE_VERSION = 'v2026-09-20d (자리 카드 폭 고침)';
   console.log('[NowThere] ' + NOWTHERE_VERSION);
 
   var CCTV_PROXY_BASE_URL = 'https://api.nowthere.net';
@@ -1465,6 +1465,7 @@
   firebase.auth().onAuthStateChanged(function(user) {
     if (!user) {
       isAdmin = false;
+      if (typeof recordVisitOnce === 'function') recordVisitOnce();
       myOwnerId = legacyOwnerId;
       myOwnerIds = [legacyOwnerId];
       firebase.auth().signInAnonymously().catch(function(e) {
@@ -1474,6 +1475,7 @@
       myOwnerId = user.uid;
       myOwnerIds = user.uid === legacyOwnerId ? [user.uid] : [user.uid, legacyOwnerId];
       isAdmin = !user.isAnonymous;
+      if (typeof recordVisitOnce === 'function') recordVisitOnce();
       // 관리자에게는 비공개 산·해안 카메라도 흐리게 보여야 한다. 자기가 찍은 자리를
       // 못 보면 확인할 방법이 없다.
       if (typeof drawParkCams === 'function') drawParkCams();
@@ -1852,6 +1854,11 @@
     } catch (e) { return true; } // 저장소를 못 쓰는 브라우저면 그냥 센다
     }
   function bumpStat(fields) {
+    // ⚠️ 2026-09-20: 지금까지 관리자 활동이 그대로 집계에 섞이고 있었다. 사용자가
+    // 사실상 운영자뿐인 단계에서는 표 전체가 운영자 활동 기록이 된다. 그 상태로
+    // ID33(2주 측정)을 열면 숫자가 처음부터 오염된 채로 시작한다.
+    // 측정은 "남이 한 일"을 세는 것이다.
+    if (isAdmin) return;
     try {
       var inc = firebase.firestore.FieldValue.increment;
       var payload = { updatedAt: firebase.firestore.FieldValue.serverTimestamp() };
@@ -1891,7 +1898,7 @@
     if (spot.id) {
       bumpStat({ spotOpens: 1 });
       // 자기 기록을 자기가 열어본 것은 세지 않는다. 그러면 숫자가 남이 본 횟수를 뜻하게 된다.
-      if (!isMine(spot.ownerId) && onceADay('sv_' + spot.id)) {
+      if (!isAdmin && !isMine(spot.ownerId) && onceADay('sv_' + spot.id)) {
         db.collection('spots').doc(spot.id)
           .update({ viewCount: firebase.firestore.FieldValue.increment(1) })
           .catch(function(e) { console.warn('[NowThere] 조회수 기록 실패(무시):', e && e.code); });
@@ -2262,7 +2269,16 @@
   }
 
   subscribeSpots(null);
-  recordVisit(); // ID100 - 방문·유입 집계 (하루 1회, 개인 식별 없음)
+  // ⚠️ 방문 집계는 인증이 끝난 뒤에 한다. 그 전에는 관리자인지 알 수 없어서
+  // 운영자 방문이 그대로 섞인다. 인증이 영영 안 끝나는 경우를 대비해 5초 뒤에는
+  // 그냥 센다(집계를 아예 못 하는 것보다 낫다).
+  var visitCounted = false;
+  function recordVisitOnce() {
+    if (visitCounted) return;
+    visitCounted = true;
+    recordVisit(); // ID100 - 방문·유입 집계 (하루 1회, 개인 식별 없음)
+  }
+  setTimeout(recordVisitOnce, 5000);
 
   // 3. 검색 기능
   // 기록 이름 비교용 정규화: 공백/특수문자 무시, 대소문자 무시 (예: "26년 지리산 여행" == "26년지리산여행")
@@ -2541,22 +2557,29 @@
   function showSearchPoint(lat, lng, label) {
     clearSearchPoint();
     if (!(window.kakao && kakao.maps && kakao.maps.CustomOverlay)) return;
+    // ⚠️ 2026-09-20 고침: 폭을 max-width 로만 줬더니 카드가 글자 한 자 폭까지
+    // 쪼그라들었다. 지도 위에 띄우는 요소는 담을 상자가 없어서, 폭을 정해주지 않으면
+    // 들어갈 수 있는 가장 좁은 폭으로 접힌다. 안쪽에 "줄어들어도 된다"(min-width:0,
+    // flex:1 1 0)까지 달아놔서 더 심해졌다. 폭을 숫자로 못 박는다.
     var wrap = document.createElement('div');
-    wrap.style.cssText = 'position:relative;';
+    wrap.style.cssText = 'position:relative;width:250px;max-width:78vw;';
     var card = document.createElement('div');
-    card.style.cssText = 'background:#111827;color:#fff;border-radius:12px;padding:8px 10px;' +
-      'box-shadow:0 3px 12px rgba(0,0,0,0.35);font-size:11.5px;line-height:1.5;' +
-      'max-width:240px;white-space:normal;';
+    card.style.cssText = 'width:100%;box-sizing:border-box;background:#111827;color:#fff;' +
+      'border-radius:12px;padding:9px 11px;box-shadow:0 3px 12px rgba(0,0,0,0.35);' +
+      'font-size:11.5px;line-height:1.55;white-space:normal;word-break:keep-all;text-align:left;';
     card.innerHTML =
-      '<div style="display:flex;align-items:flex-start;gap:6px;">' +
-      '<span id="spLabel" style="flex:1 1 auto;min-width:0;">' + escapeHtml(label || '') + '</span>' +
-      '<button type="button" id="spClose" aria-label="닫기" style="flex:0 0 auto;border:none;background:transparent;' +
-      'color:#94a3b8;font-size:14px;cursor:pointer;padding:0 2px;line-height:1;">×</button></div>' +
-      '<div style="display:flex;gap:5px;margin-top:7px;">' +
-      '<button type="button" id="spCctv" style="flex:1 1 0;border:none;border-radius:8px;padding:6px 8px;' +
-      'font-size:11.5px;font-weight:700;cursor:pointer;background:#fff;color:#111827;">📷 주변 CCTV</button>' +
-      '<button type="button" id="spLeave" style="flex:1 1 0;border:none;border-radius:8px;padding:6px 8px;' +
-      'font-size:11.5px;font-weight:700;cursor:pointer;background:rgba(255,255,255,0.18);color:#fff;">📍 여기에 남기기</button>' +
+      '<div style="position:relative;padding-right:16px;">' +
+      '<span id="spLabel">' + escapeHtml(label || '') + '</span>' +
+      '<button type="button" id="spClose" aria-label="닫기" style="position:absolute;top:-2px;right:-2px;' +
+      'border:none;background:transparent;color:#94a3b8;font-size:15px;cursor:pointer;' +
+      'padding:0 2px;line-height:1;">×</button></div>' +
+      '<div style="display:flex;gap:5px;margin-top:8px;">' +
+      '<button type="button" id="spCctv" style="flex:1 1 50%;min-width:0;border:none;border-radius:8px;' +
+      'padding:7px 4px;font-size:11.5px;font-weight:700;cursor:pointer;white-space:nowrap;' +
+      'background:#fff;color:#111827;">📷 주변 CCTV</button>' +
+      '<button type="button" id="spLeave" style="flex:1 1 50%;min-width:0;border:none;border-radius:8px;' +
+      'padding:7px 4px;font-size:11.5px;font-weight:700;cursor:pointer;white-space:nowrap;' +
+      'background:rgba(255,255,255,0.18);color:#fff;">📍 여기에 남기기</button>' +
       '</div>';
     var tail = document.createElement('span');
     tail.style.cssText = 'position:absolute;left:50%;bottom:-7px;margin-left:-6px;width:0;height:0;' +
@@ -3144,7 +3167,15 @@
       ? '<p style="margin:0 0 4px;font-size:13px;color:#374151;">전체 기록 <b>' + mine.length + '곳</b> <span style="color:#b45309;font-size:12px;">(관리자 · 남의 비공개 포함)</span></p>' +
         '<p style="margin:0 0 12px;font-size:11.5px;color:#94a3b8;">관리자 계정은 브라우저가 바뀌어도 같습니다.</p>'
       : '<p style="margin:0 0 4px;font-size:13px;color:#374151;">내가 남긴 기록 <b>' + mine.length + '곳</b></p>' +
-        '<p style="margin:0 0 12px;font-size:11.5px;color:#94a3b8;">🖥 이 브라우저에서만 보입니다 · 브라우저를 바꾸거나 저장기록을 지우면 이어지지 않습니다</p>';
+        // ⚠️ 2026-09-20: 예전 문구는 흐린 회색 한 줄이라 읽히지 않았고, 읽어도
+        // "그래서 어쩌라고"가 남았다. 모르고 잃는 것과 알고 잃는 것은 다르다.
+        // 지금 단계에서 복구 방법은 사람이다 - 그러니 사람에게 연락하라고 적는다.
+        '<div style="margin:0 0 12px;padding:9px 11px;border-radius:9px;background:#fffbeb;' +
+        'border:1px solid #fde68a;font-size:11.5px;color:#92400e;line-height:1.7;">' +
+        '🖥 <b>이 기록은 지금 쓰시는 브라우저에 묶여 있습니다.</b><br>' +
+        '브라우저 저장기록을 지우거나 다른 기기에서 열면 주인 표시가 이어지지 않습니다. ' +
+        '기록이 사라지는 것은 아니고, 고치거나 지울 권한만 끊깁니다.<br>' +
+        '기기를 바꾸실 일이 있으면 <b>미리 알려주세요 — 옮겨드립니다.</b></div>';
 
     if (mine.length === 0) {
       openModal(isAdmin ? '🧭 전체 기록 (관리자)' : '🧭 내 기록', head + '<p style="color:#888;font-size:13px;">아직 남긴 기록이 없습니다. 지도를 눌러 첫 기록을 남겨보세요.</p>');
@@ -6285,6 +6316,15 @@
       '<div style="min-width:0;"><div style="font-size:13px;">격자 열쇠 채우기</div>' +
       '<div style="font-size:11.5px;color:#64748b;">예전 기록에 위치 열쇠(지오해시)를 넣습니다. 화면은 바뀌지 않고, 나중에 “보이는 곳만 불러오기”를 만들 길이 열립니다.</div></div>' +
       '<button id="admGeohash" style="flex:0 0 auto;border:none;border-radius:6px;padding:6px 12px;font-size:12px;cursor:pointer;background:#1f2937;color:#fff;">실행</button></div>' +
+      // ⚠️ 2026-09-20 신설: 소유 상태 점검. 지금 방식(익명 번호)은 나중에 복구 코드로,
+      // 그다음 이메일로 올라가도 번호가 그대로라 데이터를 안 옮긴다 - 단, 그 번호가
+      // 제대로 잡혀 있을 때만이다. 익명 인증이 실패해 옛 방식(u_...)으로 떨어진
+      // 기록은 승계가 안 된다. 지금 몇 건이 그 상태인지 세어둔다.
+      '<div style="display:flex;align-items:center;justify-content:space-between;gap:10px;padding:8px 0;border-top:1px solid #f1f5f9;">' +
+      '<div style="min-width:0;"><div style="font-size:13px;">소유 상태 점검</div>' +
+      '<div style="font-size:11.5px;color:#64748b;">기록의 주인이 어떤 형식인지 셉니다. 옛 형식(u_…)은 나중에 복구 코드로 이어지지 않습니다.</div></div>' +
+      '<button id="admOwnerCheck" style="flex:0 0 auto;border:none;border-radius:6px;padding:6px 12px;font-size:12px;cursor:pointer;background:#1f2937;color:#fff;">확인</button></div>' +
+      '<div id="admOwnerBox"></div>' +
       // ⚠️ 2026-09 신설(배포2): 소유자 통합.
       // 익명 UID는 브라우저마다 다르고 재발급되기도 한다. 실제로 등록분이 익명 UID 두 개와
       // 익명인증 이전 형식(u_...) 두 개, 관리자 하나로 다섯 갈래로 쪼개져 있었다. 그러면
@@ -6818,6 +6858,38 @@
     // ── 색인 만들기 ─────────────────────────────────────────────────────────
     // 재기만 하고 바로 쓰지 않는다. 눈으로 보고 "이게 약한 비에서 센 비 순서가
     // 맞는가"를 판단한 뒤에 저장한다. 우리가 만든 것은 측정값이지 정답이 아니다.
+    var ownBtn = document.getElementById('admOwnerCheck');
+    if (ownBtn) ownBtn.addEventListener('click', function() {
+      var box = document.getElementById('admOwnerBox');
+      if (!box) return;
+      box.innerHTML = '<p style="font-size:12px;color:#94a3b8;margin:8px 0;">세는 중…</p>';
+      db.collection('spots').get().then(function(snap) {
+        var uid = 0, legacy = 0, none = 0, owners = {};
+        snap.forEach(function(d) {
+          var o = (d.data() || {}).ownerId;
+          if (!o) { none++; return; }
+          owners[o] = (owners[o] || 0) + 1;
+          if (String(o).indexOf('u_') === 0) legacy++; else uid++;
+        });
+        var me = String(myOwnerId || '');
+        var meKind = me.indexOf('u_') === 0
+          ? '<span style="color:#b45309;">옛 형식(u_…) — 익명 인증이 안 잡혔습니다</span>'
+          : '<span style="color:#0a7d2c;">익명 번호 — 나중에 그대로 이어집니다</span>';
+        box.innerHTML = '<div style="margin-top:8px;padding:10px 12px;background:#f8fafc;border-radius:8px;' +
+          'font-size:12px;color:#475569;line-height:1.8;">' +
+          '지금 이 브라우저의 주인 값 · ' + meKind + '<br>' +
+          '기록 ' + snap.size + '건 중 — 익명 번호 <b>' + uid + '</b> · 옛 형식 <b style="color:' +
+          (legacy ? '#b45309' : '#0a7d2c') + '">' + legacy + '</b> · 주인 없음 <b>' + none + '</b><br>' +
+          '서로 다른 주인 <b>' + Object.keys(owners).length + '</b>명' +
+          (legacy || none
+            ? '<br><span style="color:#b45309;">옛 형식이나 주인 없는 기록이 있습니다. 위의 <b>소유자 통합</b>으로 관리자 계정에 모아두면 잃지 않습니다.</span>'
+            : '<br><span style="color:#0a7d2c;">모두 익명 번호입니다. 복구 코드 단계로 올라갈 때 데이터를 옮길 일이 없습니다.</span>') +
+          '</div>';
+      }).catch(function(err) {
+        box.innerHTML = '<p style="font-size:12px;color:#b91c1c;margin:8px 0;">실패: ' + escapeHtml(err.message) + '</p>';
+      });
+    });
+
     // 격자 열쇠 채우기. 좌표가 있고 열쇠가 없는 것만 고친다 - 이미 있는 것을
     // 다시 쓰면 쓰기 횟수만 늘고 얻는 것이 없다.
     var ghBtn = document.getElementById('admGeohash');
@@ -7459,6 +7531,9 @@
         : '<div style="border:1px dashed #e2e8f0;border-radius:10px;padding:10px 12px;margin-bottom:12px;' +
             'font-size:11.5px;color:#94a3b8;line-height:1.65;">' +
             '나만 보기라서 나눌 링크는 만들지 않았습니다. 나중에 <b>내 기록</b>에서 공개로 바꾸면 그때 링크가 생깁니다.</div>') +
+
+      '<div style="font-size:11px;color:#94a3b8;line-height:1.6;margin-bottom:10px;">' +
+      '🖥 이 기록은 지금 쓰시는 브라우저에 묶여 있습니다. 저장기록을 지우면 고칠 권한이 끊깁니다.</div>' +
 
       '<div style="display:flex;gap:8px;">' +
         '<button id="regMineBtn" type="button" style="flex:1 1 0;padding:10px;border:1px solid #cbd5e1;' +
