@@ -672,7 +672,7 @@
   // 생기면 재사용 가능) index.html에서는 호출하지 않음.
   // 배포된 파일이 최신인지 콘솔에서 한 줄로 확인하기 위한 표시.
   // 같은 이유로 여러 번 헛돌아서(옛 파일이 올라간 줄 모르고 디버깅) 넣어둠.
-  var NOWTHERE_VERSION = 'v2026-09-19a (주제 자리 · 대표 범위)';
+  var NOWTHERE_VERSION = 'v2026-09-20a (좌표 검색)';
   console.log('[NowThere] ' + NOWTHERE_VERSION);
 
   var CCTV_PROXY_BASE_URL = 'https://api.nowthere.net';
@@ -2366,6 +2366,13 @@
 
   // 검색어가 가리키는 곳으로 지도만 옮긴다(등록 중 이동용).
   function moveMapToQuery(query) {
+    var pt0 = parseLatLngText(query);
+    if (pt0) {
+      mapSetCenter(pt0.lat, pt0.lng);
+      if (mapGetLevel() > 4) mapSetLevel(4);
+      showStatus('📍 ' + pt0.lat.toFixed(6) + ', ' + pt0.lng.toFixed(6) + ' 로 옮겼습니다');
+      return;
+    }
     showStatus('🔎 "' + query + '"(으)로 지도를 옮기는 중…');
     function go(lat, lng) {
       mapSetCenter(lat, lng);
@@ -2515,10 +2522,44 @@
     });
   }
 
+
+  // ---------------------------------------------------------------------------
+  // 좌표를 그대로 넣기 (2026-09-20)
+  // ---------------------------------------------------------------------------
+  // ⚠️ 네이버 지도는 "33.385138, 126.620312"를 넣으면 그리로 간다. 우리는 안 갔다.
+  // 지명으로만 찾게 해두면, 좌표를 들고 온 사람(자료를 다루는 사람은 늘 좌표를 든다)
+  // 앞에서 지도가 벽이 된다. 실제로 이번에 공개 API가 준 좌표를 확인하려다 막혔다.
+  // 받아들이는 모양은 넓게 잡는다 - 쉼표든 공백이든, 괄호가 붙어 있든.
+  // 위도·경도 순서가 뒤바뀌어도 받는다. 우리나라는 위도 33~39, 경도 124~132라
+  // 둘이 겹치지 않아 어느 쪽이 위도인지 숫자만 보고 가릴 수 있다.
+  function parseLatLngText(text) {
+    // "위도 33.3 경도 126.6"처럼 이름표를 달아 오는 경우가 있다. 이름표는 떼고 본다.
+    var t = String(text || '').replace(/위도|경도|latitude|longitude|lat|lng|lon/gi, ' ');
+    var m = t.match(/(-?\d{1,3}(?:\.\d+)?)\s*[,\s]\s*(-?\d{1,3}(?:\.\d+)?)/);
+    if (!m) return null;
+    var a = parseFloat(m[1]), b = parseFloat(m[2]);
+    if (!isFinite(a) || !isFinite(b)) return null;
+    // 소수점이 아예 없는 두 숫자는 좌표로 보지 않는다("1100 도로" 같은 것이 걸린다).
+    if (m[1].indexOf('.') < 0 && m[2].indexOf('.') < 0) return null;
+    if (a >= 124 && a <= 132 && b >= 33 && b <= 39) { var t = a; a = b; b = t; }   // 뒤바뀐 경우
+    if (a < -90 || a > 90 || b < -180 || b > 180) return null;
+    return { lat: a, lng: b };
+  }
+
   function searchAndShow() {
     var query = document.getElementById('searchInput').value.trim();
     if (!query) { showStatus('⚠️ 보고 싶은 지역이나 장소를 입력해주세요'); return; }
     bumpStat({ searches: 1 });
+
+    // 좌표는 찾을 것이 없다. 이미 답이다 - 지오코더에 물어볼 이유가 없다.
+    var pt = parseLatLngText(query);
+    if (pt) {
+      mapSetCenter(pt.lat, pt.lng);
+      if (mapGetLevel() > 4) mapSetLevel(4);
+      showStatus('📍 ' + pt.lat.toFixed(6) + ', ' + pt.lng.toFixed(6) + ' 로 옮겼습니다');
+      return;
+    }
+
     // ⚠️ 2026-09-09: 등록할 자리를 고르는 중에는 검색이 "그리로 지도를 옮기는" 일만
     // 해야 한다. CCTV 그리드가 뜨면 고르던 흐름이 끊기고, 창을 닫고 나면 어디였는지
     // 다시 찾아야 한다. 등록하러 온 사람에게 검색은 이동 수단이지 구경거리가 아니다.
@@ -2570,8 +2611,8 @@
     if (!el) return;
     function apply() {
       el.placeholder = (window.innerWidth < 480)
-        ? '지명·주소·지역을 넣어보세요'
-        : '지명·주소·지역을 넣으면 그곳이 보여요';
+        ? '지명·주소·좌표를 넣어보세요'
+        : '지명·주소·좌표를 넣으면 그곳이 보여요';
     }
     apply();
     window.addEventListener('resize', apply);
