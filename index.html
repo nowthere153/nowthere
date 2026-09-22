@@ -672,7 +672,7 @@
   // 생기면 재사용 가능) index.html에서는 호출하지 않음.
   // 배포된 파일이 최신인지 콘솔에서 한 줄로 확인하기 위한 표시.
   // 같은 이유로 여러 번 헛돌아서(옛 파일이 올라간 줄 모르고 디버깅) 넣어둠.
-  var NOWTHERE_VERSION = 'v2026-09-20e (곁가지가 본줄기를 못 끊게)';
+  var NOWTHERE_VERSION = 'v2026-09-21a (검색은 이동 · 카드로 내밀기)';
   console.log('[NowThere] ' + NOWTHERE_VERSION);
 
   var CCTV_PROXY_BASE_URL = 'https://api.nowthere.net';
@@ -2520,7 +2520,7 @@
     document.getElementById('scCctv').addEventListener('click', function() {
       document.getElementById('modal').classList.remove('show');
       document.getElementById('modalBody').innerHTML = '';
-      showStatus('🔎 "' + query + '" 지금 모습을 불러오는 중…');
+      showStatus('🔎 "' + query + '" 찾는 중…');
       var gc = new kakao.maps.services.Geocoder();
       gc.addressSearch(query, function(result, status) {
         if (status === kakao.maps.services.Status.OK && result[0]) {
@@ -2558,15 +2558,24 @@
   // 부른 쪽까지 멈춰 세우고 있었다. 주소 검색에서 카드를 CCTV 창보다 먼저 띄우게
   // 써놨기 때문에, 카드가 실패하면 CCTV 선택창도 안 열렸다. 두 증상이 한 원인이었다.
   // 곁가지는 절대로 본줄기를 끊으면 안 된다.
-  function showSearchPoint(lat, lng, label) {
-    try { buildSearchPoint(lat, lng, label); }
+  // title: 찾은 이름(충주시청, 입력한 주소) · addr: 주소. 둘 다 없으면 주소를 뒤에서 채운다.
+  function showSearchPoint(lat, lng, title, addr) {
+    try { buildSearchPoint(lat, lng, title, addr); }
     catch (e) {
       console.warn('[자리표시] 만들지 못했습니다:', e && e.message);
       // 표시를 못 해도 어디로 갔는지는 말해준다. 아무 말도 없는 것이 제일 나쁘다.
       showStatus('📍 ' + lat.toFixed(6) + ', ' + lng.toFixed(6));
     }
   }
-  function buildSearchPoint(lat, lng, label) {
+  function searchPointLabelHtml(lat, lng, title, addr) {
+    var t = String(title || ''), a = String(addr || '');
+    var head = t || a || '이 자리';
+    var second = (t && a && a !== t) ? a : '';
+    return '<b style="font-size:12.5px;">' + escapeHtml(head) + '</b>' +
+      (second ? '<br>' + escapeHtml(second) : '') +
+      '<br><span style="color:#94a3b8;font-size:11px;">' + lat.toFixed(6) + ', ' + lng.toFixed(6) + '</span>';
+  }
+  function buildSearchPoint(lat, lng, title, addr) {
     clearSearchPoint();
     if (!(window.kakao && kakao.maps && kakao.maps.CustomOverlay)) {
       showStatus('📍 ' + lat.toFixed(6) + ', ' + lng.toFixed(6));
@@ -2584,7 +2593,7 @@
       'font-size:11.5px;line-height:1.55;white-space:normal;word-break:keep-all;text-align:left;';
     card.innerHTML =
       '<div style="position:relative;padding-right:16px;">' +
-      '<span id="spLabel">' + escapeHtml(label || '') + '</span>' +
+      '<span id="spLabel">' + searchPointLabelHtml(lat, lng, title, addr) + '</span>' +
       '<button type="button" id="spClose" aria-label="닫기" style="position:absolute;top:-2px;right:-2px;' +
       'border:none;background:transparent;color:#94a3b8;font-size:15px;cursor:pointer;' +
       'padding:0 2px;line-height:1;">×</button></div>' +
@@ -2604,7 +2613,8 @@
     card.querySelector('#spClose').addEventListener('click', function(e) { e.stopPropagation(); clearSearchPoint(); });
     card.querySelector('#spCctv').addEventListener('click', function(e) {
       e.stopPropagation(); clearSearchPoint();
-      openNearestCctvAt(lat, lng, '이 자리의 지금', null);
+      // 예전에 검색하자마자 뜨던 "가까운 CCTV 5곳" 창이다. 이제 원할 때만 연다.
+      openDistrictWeatherView(title || addr || '이 자리', { lat: lat, lng: lng });
     });
     card.querySelector('#spLeave').addEventListener('click', function(e) {
       e.stopPropagation(); clearSearchPoint();
@@ -2627,16 +2637,16 @@
     }
 
     // 그 자리의 주소를 뒤에서 채운다. 좌표만 적어두면 사람에게는 아무 말도 아니다.
+    if (addr) return;
     try {
       new kakao.maps.services.Geocoder().coord2Address(lng, lat, function(res, st) {
         if (st !== kakao.maps.services.Status.OK || !res || !res[0]) return;
         var el = document.getElementById('spLabel');
         if (!el) return;
         var r = res[0];
-        var addr = (r.road_address && r.road_address.address_name) ||
-                   (r.address && r.address.address_name) || '';
-        if (addr) el.innerHTML = escapeHtml(addr) +
-          '<br><span style="color:#94a3b8;">' + lat.toFixed(6) + ', ' + lng.toFixed(6) + '</span>';
+        var found = (r.road_address && r.road_address.address_name) ||
+                    (r.address && r.address.address_name) || '';
+        if (found) el.innerHTML = searchPointLabelHtml(lat, lng, title, found);
       });
     } catch (e) {}
   }
@@ -2664,6 +2674,26 @@
     return { lat: a, lng: b };
   }
 
+
+  // ---------------------------------------------------------------------------
+  // 검색해서 도착하기 (2026-09-21 · 합의대로)
+  // ---------------------------------------------------------------------------
+  // ⚠️ 예전에는 검색하자마자 CCTV 다섯 칸 창이 떴다. 지도만 보려던 사람도, 그곳에
+  // 영상을 남기려던 사람도 모두 CCTV 창부터 닫아야 했다. 검색은 "그곳으로 간다"이고,
+  // 거기서 무엇을 할지는 사용자가 정한다. 그래서 검색은 이동만 하고, 도착한 자리에
+  // 카드를 내민다 - 이름·주소·좌표, 그리고 [주변 CCTV] [여기에 남기기].
+  // ⚠️ 2026-09-20에 이 합의를 좌표에만 적용하고 지명·주소는 예전대로 둬서, 질문자가
+  // 합의와 다른 화면을 보게 했다. 세 갈래를 이 함수 하나로 모은다.
+  function arriveAt(lat, lng, title, addr) {
+    if (lat == null || lng == null || isNaN(lat) || isNaN(lng)) return;
+    mapSetCenter(lat, lng);
+    mapSetLevel(5);
+    // "찾는 중…" 안내는 도착했으면 거둔다 - 카드가 대신 말한다.
+    var sm = document.getElementById('statusMsg');
+    if (sm) sm.style.display = 'none';
+    showSearchPoint(lat, lng, title, addr);
+  }
+
   function searchAndShow() {
     var query = document.getElementById('searchInput').value.trim();
     if (!query) { showStatus('⚠️ 보고 싶은 지역이나 장소를 입력해주세요'); return; }
@@ -2673,10 +2703,7 @@
     // 좌표는 찾을 것이 없다. 이미 답이다 - 지오코더에 물어볼 이유가 없다.
     var pt = parseLatLngText(query);
     if (pt) {
-      mapSetCenter(pt.lat, pt.lng);
-      if (mapGetLevel() > 4) mapSetLevel(4);
-      showStatus('📍 ' + pt.lat.toFixed(6) + ', ' + pt.lng.toFixed(6) + ' 로 옮겼습니다');
-      showSearchPoint(pt.lat, pt.lng, pt.lat.toFixed(6) + ', ' + pt.lng.toFixed(6));
+      arriveAt(pt.lat, pt.lng, '', '');
       return;
     }
 
@@ -2705,7 +2732,7 @@
       return;
     }
 
-    showStatus('🔎 "' + query + '" 지금 모습을 불러오는 중…');
+    showStatus('🔎 "' + query + '" 찾는 중…');
     var geocoder = new kakao.maps.services.Geocoder();
     geocoder.addressSearch(query, function(result, status) {
       if (status === kakao.maps.services.Status.OK && result[0]) {
@@ -2713,13 +2740,17 @@
         // 지명(아래 keywordSearch)은 지도가 이미 이름을 그려주므로 찍지 않는다.
         // 네이버도 같은 방식이고, 겹쳐 찍으면 같은 자리에 이름이 둘이 된다.
         var ay = parseFloat(result[0].y), ax = parseFloat(result[0].x);
-        openDistrictWeatherView(query, { lat: ay, lng: ax });   // 본줄기 먼저
-        showSearchPoint(ay, ax, query);                         // 곁가지 나중
+        var r0 = result[0];
+        var aAddr = (r0.road_address && r0.road_address.address_name) || r0.address_name || '';
+        arriveAt(ay, ax, query, aAddr);
         return;
       }
       ps.keywordSearch(query, function(data, psStatus) {
         if (psStatus === kakao.maps.services.Status.OK && data[0]) {
-          openDistrictWeatherView(query, { lat: parseFloat(data[0].y), lng: parseFloat(data[0].x) });
+          var d0 = data[0];
+          arriveAt(parseFloat(d0.y), parseFloat(d0.x),
+                   d0.place_name || query,
+                   d0.road_address_name || d0.address_name || '');
         } else {
           showStatus('⚠️ "' + query + '" 위치를 찾지 못했습니다. 다른 이름으로 시도해보세요.');
         }
