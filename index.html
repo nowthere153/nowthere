@@ -672,7 +672,7 @@
   // 생기면 재사용 가능) index.html에서는 호출하지 않음.
   // 배포된 파일이 최신인지 콘솔에서 한 줄로 확인하기 위한 표시.
   // 같은 이유로 여러 번 헛돌아서(옛 파일이 올라간 줄 모르고 디버깅) 넣어둠.
-  var NOWTHERE_VERSION = 'v2026-09-21a (검색은 이동 · 카드로 내밀기)';
+  var NOWTHERE_VERSION = 'v2026-09-23a (카드 정리 · 등록창에 주소)';
   console.log('[NowThere] ' + NOWTHERE_VERSION);
 
   var CCTV_PROXY_BASE_URL = 'https://api.nowthere.net';
@@ -2567,13 +2567,26 @@
       showStatus('📍 ' + lat.toFixed(6) + ', ' + lng.toFixed(6));
     }
   }
+  // ⚠️ 2026-09-23: 주소를 넣고 찾으면 "충주시 능바우길 96 / 충북 충주시 능바우길 96"
+  // 처럼 같은 말이 두 줄로 나왔다. 한쪽이 다른 쪽을 품고 있으면 긴 쪽만 남긴다.
+  // 그리고 좌표는 일반 사용자에게 아무 뜻이 없다 - 숫자가 정확해 보일 뿐 읽을 수
+  // 없는 정보다. 자료를 다루는 관리자에게만 보인다.
+  function sameishPlace(a, b) {
+    var x = String(a || '').replace(/\s/g, ''), y = String(b || '').replace(/\s/g, '');
+    if (!x || !y) return false;
+    return x === y || x.indexOf(y) >= 0 || y.indexOf(x) >= 0;
+  }
   function searchPointLabelHtml(lat, lng, title, addr) {
     var t = String(title || ''), a = String(addr || '');
-    var head = t || a || '이 자리';
-    var second = (t && a && a !== t) ? a : '';
+    var head, second = '';
+    if (t && a) {
+      if (sameishPlace(t, a)) { head = (a.length >= t.length) ? a : t; }
+      else { head = t; second = a; }
+    } else { head = t || a || '이 자리'; }
     return '<b style="font-size:12.5px;">' + escapeHtml(head) + '</b>' +
       (second ? '<br>' + escapeHtml(second) : '') +
-      '<br><span style="color:#94a3b8;font-size:11px;">' + lat.toFixed(6) + ', ' + lng.toFixed(6) + '</span>';
+      (isAdmin ? '<br><span style="color:#94a3b8;font-size:11px;">' +
+        lat.toFixed(6) + ', ' + lng.toFixed(6) + '</span>' : '');
   }
   function buildSearchPoint(lat, lng, title, addr) {
     clearSearchPoint();
@@ -7369,6 +7382,13 @@
     }).join('');
 
     var formHtml =
+      // ⚠️ 2026-09-23 신설: 지금까지 등록 창은 "어디에 남기는지"를 말하지 않았다.
+      // 지도를 누른 자리가 맞는지 확인할 방법이 없으니, 사용자는 자기가 찍은 점을
+      // 믿는 수밖에 없었다. 주소를 적어주면 그 자리에서 검증이 된다 - 신뢰는
+      // 주장해서 얻는 것이 아니라 확인할 수 있게 해서 얻는다.
+      '<div id="regWhere" style="margin:0 0 12px;padding:9px 11px;border-radius:9px;' +
+      'background:#f8fafc;border:1px solid #e2e8f0;font-size:12.5px;color:#475569;line-height:1.6;">' +
+      '📍 <span id="regWhereText" style="color:#94a3b8;">이 자리가 어디인지 확인하는 중…</span></div>' +
       '<div class="formRow"><label>장소 이름</label><input id="regTitle" type="text" placeholder="예: 우리집 앞마당, OO캠핑장"></div>' +
       '<div class="formRow"><label>어떤 콘텐츠인가요?</label><div id="catButtons" style="display:flex;gap:6px;flex-wrap:wrap;">' + catButtonsHtml + '</div></div>' +
       // ⚠️ 2026-08: 입력칸 안내문에 주소 예시(https://youtube.com/watch?v=...)를 넣어뒀더니
@@ -7390,19 +7410,46 @@
       '</div>' +
       // ⚠️ 2026-09(ID97 · DC-01): 기본값은 나만 보기다. 공개→비공개는 되돌리기가 비싸고
       // (이미 공유된 링크가 깨진다) 그 반대는 싸다. 한쪽으로만 값싸게 움직이므로 비공개에서 시작한다.
-      '<div class="formRow"><label>누가 볼 수 있나요</label>' +
+      // ⚠️ 2026-09-23: "누가 볼 수 있나요"는 설정을 묻는 말이라 남 일처럼 읽힌다.
+      // 정하는 사람은 올리는 본인이고, 정하는 것은 권한이 아니라 마음이다.
+      '<div class="formRow"><label>혼자 간직하실래요, 나누실래요?</label>' +
       '<div id="regVisRow" style="display:flex;gap:8px;">' +
-      '<button type="button" class="visBtn active" data-vis="private" style="flex:1;padding:9px 8px;border:1px solid #ddd;border-radius:8px;background:#eef2ff;color:#4338ca;font-size:13px;cursor:pointer;">🔒 나만 보기</button>' +
-      '<button type="button" class="visBtn" data-vis="public" style="flex:1;padding:9px 8px;border:1px solid #ddd;border-radius:8px;background:#fff;color:#475569;font-size:13px;cursor:pointer;">🌐 공개</button>' +
+      '<button type="button" class="visBtn active" data-vis="private" style="flex:1;padding:9px 8px;border:1px solid #ddd;border-radius:8px;background:#eef2ff;color:#4338ca;font-size:13px;cursor:pointer;">🔒 나만 간직</button>' +
+      '<button type="button" class="visBtn" data-vis="public" style="flex:1;padding:9px 8px;border:1px solid #ddd;border-radius:8px;background:#fff;color:#475569;font-size:13px;cursor:pointer;">🌐 함께 보기</button>' +
       '</div>' +
-      '<p style="margin:6px 0 0;font-size:12px;color:#6b7280;">나중에 내 기록에서 언제든 바꿀 수 있어요.</p></div>' +
+      '<p style="margin:6px 0 0;font-size:12px;color:#6b7280;">지금 안 정하셔도 됩니다 — 내 기록에서 언제든 바꿀 수 있어요.</p></div>' +
       '<p id="placeHint"></p>' +
       '<button id="confirmRegisterBtn">등록하기</button>' +
-      '<p style="font-size:12px;color:#999;margin-top:10px;">🔴 유튜브 라이브 = 빨간 핀(지금 이 순간) · 🔵 인스타그램 = 파란 핀(그때 그 순간의 기록)<br>등록하시면 모든 방문자에게 공유됩니다.</p>' +
+      // ⚠️ 2026-09-23: 바로 위에서 "나만 간직"을 고를 수 있게 해놓고 여기서는
+      // "모든 방문자에게 공유됩니다"라고 통보하고 있었다. 화면이 스스로를 부정하는
+      // 자리다(IV-7). 고른 대로 된다고 적는다.
+      '<p style="font-size:12px;color:#999;margin-top:10px;">🔴 유튜브 라이브 = 빨간 핀(지금 이 순간) · 🔵 인스타그램 = 파란 핀(그때 그 순간의 기록)<br>위에서 고르신 대로 저장됩니다.</p>' +
       '<p style="text-align:center;margin-top:10px;"><a href="#" id="cancelRegisterLink" style="color:#999;font-size:13px;">등록 모드 완전히 종료하기</a></p>';
     // ID67: 바텀시트 모드로 열어서 화면 하단 절반 이하로만 표시 - 위쪽 지도와 방금 지정한
     // 핀 위치가 폼에 가려지지 않고 계속 보임
     openModal('새 스팟 등록', formHtml, null, true);
+
+    // 이 자리가 어디인지 적어준다. 관리자에게는 좌표도 함께 - 자료를 다룰 때 필요하다.
+    (function fillWhere() {
+      var el = document.getElementById('regWhereText');
+      if (!el || !pendingLatLng) return;
+      var la = pendingLatLng.lat, ln = pendingLatLng.lng;
+      var coordLine = isAdmin ? ' <span style="color:#94a3b8;">· ' + la.toFixed(6) + ', ' + ln.toFixed(6) + '</span>' : '';
+      try {
+        new kakao.maps.services.Geocoder().coord2Address(ln, la, function(res, st) {
+          var e2 = document.getElementById('regWhereText');
+          if (!e2) return;
+          var r = (st === kakao.maps.services.Status.OK && res && res[0]) ? res[0] : null;
+          var addr = r ? ((r.road_address && r.road_address.address_name) ||
+                          (r.address && r.address.address_name) || '') : '';
+          e2.innerHTML = addr
+            ? '<b style="color:#334155;">' + escapeHtml(addr) + '</b>' + coordLine
+            : '<span style="color:#94a3b8;">주소를 찾지 못한 자리입니다</span>' + coordLine;
+        });
+      } catch (e) {
+        el.innerHTML = '<span style="color:#94a3b8;">주소를 확인할 수 없습니다</span>' + coordLine;
+      }
+    })();
 
     document.querySelectorAll('.catBtn').forEach(function(btn) {
       btn.addEventListener('click', function() {
